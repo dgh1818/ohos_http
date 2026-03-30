@@ -1,0 +1,10 @@
+{
+  "module": {
+    "name": "ohos_http",
+    "type": "har",
+    "deviceTypes": [
+      "default",
+      "tablet"
+    ]
+  }
+}

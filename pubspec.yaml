@@ -1,0 +1,27 @@
+name: ohos_http
+description: HTTP client bridge for OpenHarmony that exposes NetworkKit as a package:http Client.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+  flutter: '>=3.35.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.5.0
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  pigeon:
+    git:
+      url: https://gitcode.com/openharmony-sig/flutter_packages.git
+      path: packages/pigeon
+      ref: br_pigeon-v25.3.2_ohos
+
+flutter:
+  plugin:
+    platforms:
+      ohos:
+        pluginClass: OhosHttpPlugin
