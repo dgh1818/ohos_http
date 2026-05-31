@@ -20,16 +20,12 @@ class OhosHttpClient extends http.BaseClient {
   final NativeHttpApiOhos _nativeApi;
   final bool _supportsNativeStreamCallbacks;
 
-  bool _isClosed = false;
-
   static _NativeHttpFlutterApiBridge? _streamBridge;
   static final Map<int, _PendingNativeStreamRequest> _pendingRequests = {};
   static int _nextRequestId = 1;
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    _ensureOpen();
-
     try {
       final body = await request.finalize().toBytes();
       final nativeRequest = NativeHttpRequestOhos(
@@ -105,11 +101,6 @@ class OhosHttpClient extends http.BaseClient {
 
   @override
   void close() {
-    if (_isClosed) {
-      return;
-    }
-    _isClosed = true;
-
     final pendingEntries = _pendingRequests.entries
         .where((entry) => entry.value.owner == this)
         .toList();
@@ -148,12 +139,6 @@ class OhosHttpClient extends http.BaseClient {
       return null;
     }
     return int.tryParse(value);
-  }
-
-  void _ensureOpen() {
-    if (_isClosed) {
-      throw StateError('OhosHttpClient is already closed');
-    }
   }
 
   String _formatPlatformException(PlatformException error) {
