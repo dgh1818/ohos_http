@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
 import { uri } from '@kit.ArkTS';
+import bundleManager from '@ohos.bundle.bundleManager';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 
@@ -38,7 +39,13 @@ interface ParsedRequestUrl {
   secure: boolean;
 }
 
+interface RemoteValidationHeaderResult {
+  headers: Record<string, string>;
+  skip: boolean;
+}
+
 export class URLSessionManager {
+  private static readonly BUNDLE_INFO_FLAGS = bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION;
   private static readonly PREF_NAME = 'Immich::ClientCert';
   private static readonly KEY_CERT_PATH = 'certPath';
   private static readonly KEY_KEY_PATH = 'keyPath';
@@ -52,7 +59,11 @@ export class URLSessionManager {
   private static readonly ACCESS_TOKEN_COOKIE = 'immich_access_token';
   private static readonly IS_AUTHENTICATED_COOKIE = 'immich_is_authenticated';
   private static readonly AUTH_TYPE_COOKIE = 'immich_auth_type';
+  private static readonly REMOTE_VALIDATION_HEADER = 'x-ohos-http-remote-validation';
+  private static readonly REMOTE_VALIDATION_SKIP = 'skip';
+  private static readonly CA_BUNDLE_FILE_NAME = 'ca_bundle.pem';
   private static readonly COOKIE_EXPIRY_DAYS = 400;
+  private static readonly USER_AGENT = URLSessionManager.buildUserAgent();
   private static readonly AUTH_COOKIE_NAMES = new Set<string>([
     URLSessionManager.ACCESS_TOKEN_COOKIE,
     URLSessionManager.IS_AUTHENTICATED_COOKIE,
@@ -82,6 +93,9 @@ export class URLSessionManager {
         mergedHeaders[key] = requestState.headers[key];
       }
     });
+    if (mergedHeaders['User-Agent'] === undefined && mergedHeaders['user-agent'] === undefined) {
+      mergedHeaders['User-Agent'] = URLSessionManager.USER_AGENT;
+    }
 
     const effectiveHeaders = requestUrl
       ? URLSessionManager.applyCookieHeaders(
@@ -91,8 +105,20 @@ export class URLSessionManager {
         )
       : mergedHeaders;
 
-    if (Object.keys(effectiveHeaders).length > 0) {
-      options.header = effectiveHeaders;
+    const validationHeaders = URLSessionManager.filterRemoteValidationHeaders(effectiveHeaders);
+    if (validationHeaders.skip) {
+      options.remoteValidation = 'skip';
+    }
+
+    if (Object.keys(validationHeaders.headers).length > 0) {
+      options.header = validationHeaders.headers;
+    } else {
+      options.header = {};
+    }
+
+    const caPath = URLSessionManager.caBundlePath(context);
+    if (!validationHeaders.skip && URLSessionManager.safeAccess(caPath)) {
+      options.caPath = caPath;
     }
 
     const cert = URLSessionManager.load(context);
@@ -108,6 +134,25 @@ export class URLSessionManager {
       clientCert.keyPassword = cert.keyPassword;
     }
     options.clientCert = clientCert;
+  }
+
+  private static filterRemoteValidationHeaders(headers: Record<string, string>): RemoteValidationHeaderResult {
+    let shouldSkip = false;
+    const filteredHeaders: Record<string, string> = {};
+    Object.keys(headers).forEach((key) => {
+      if (key.toLowerCase() !== URLSessionManager.REMOTE_VALIDATION_HEADER) {
+        filteredHeaders[key] = headers[key];
+        return;
+      }
+      const value = `${headers[key]}`.trim().toLowerCase();
+      if (value === URLSessionManager.REMOTE_VALIDATION_SKIP || value === 'true' || value === '1') {
+        shouldSkip = true;
+      }
+    });
+    return {
+      headers: filteredHeaders,
+      skip: shouldSkip,
+    };
   }
 
   static updateFromResponse(context: common.Context | undefined, requestUrl: string, headerObj?: Object): void {
@@ -257,6 +302,12 @@ export class URLSessionManager {
         fs.unlinkSync(keyPath);
       } catch (_) {}
     }
+    const caPath = URLSessionManager.caBundlePath(context);
+    if (URLSessionManager.safeAccess(caPath)) {
+      try {
+        fs.unlinkSync(caPath);
+      } catch (_) {}
+    }
     pref.deleteSync(URLSessionManager.KEY_CERT_PATH);
     pref.deleteSync(URLSessionManager.KEY_KEY_PATH);
     pref.deleteSync(URLSessionManager.KEY_CERT_TYPE);
@@ -295,6 +346,10 @@ export class URLSessionManager {
       fs.closeSync(file);
     }
     return certPath;
+  }
+
+  private static caBundlePath(context: common.Context): string {
+    return `${context.filesDir}/ssl_client_cert/${URLSessionManager.CA_BUNDLE_FILE_NAME}`;
   }
 
   private static loadRequestState(context: common.Context): StoredRequestState {
@@ -770,6 +825,18 @@ export class URLSessionManager {
       }
     });
     return out;
+  }
+
+  private static buildUserAgent(): string {
+    try {
+      const bundleInfo = bundleManager.getBundleInfoForSelfSync(URLSessionManager.BUNDLE_INFO_FLAGS);
+      const version = bundleInfo.versionName && bundleInfo.versionName.length > 0
+        ? bundleInfo.versionName
+        : 'unknown';
+      return `immich-ohos/${version}`;
+    } catch (_) {
+      return 'immich-ohos/unknown';
+    }
   }
 
   private static normalizeExtension(extension?: string): string {

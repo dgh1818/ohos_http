@@ -1,6 +1,7 @@
 import { FlutterPlugin, FlutterPluginBinding } from '@ohos/flutter_ohos';
 
 import { NativeHttpApiOhos } from './NativeHttpApiOhos.g';
+import { ensureOhosHttpFfiBootstrap } from './OhosHttpFfiBootstrap';
 import { NativeHttpApiImpl } from './NativeHttpApiImpl';
 
 export default class OhosHttpPlugin implements FlutterPlugin {
@@ -9,6 +10,7 @@ export default class OhosHttpPlugin implements FlutterPlugin {
   }
 
   onAttachedToEngine(binding: FlutterPluginBinding): void {
+    ensureOhosHttpFfiBootstrap(binding.getApplicationContext());
     const messenger = binding.getBinaryMessenger();
     const context = binding.getApplicationContext();
     NativeHttpApiOhos.setup(messenger, new NativeHttpApiImpl(context, messenger));
