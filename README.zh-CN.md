@@ -105,7 +105,7 @@ await for (final line in response.stream
 
 ## Multipart 上传
 
-OHOS 上从磁盘上传文件时使用 `OhosMultipartRequest`。文件路径会传给 native libcurl 上传路径，因此 Dart client 不会在内存里构造完整 multipart body。
+OHOS 上从磁盘上传一个或多个文件时使用 `OhosMultipartRequest`。每个文件路径都会传给 native libcurl 上传路径，因此 Dart client 不会在内存里构造完整 multipart body。
 
 ```dart
 import 'package:ohos_http/ohos_http.dart';
@@ -139,8 +139,6 @@ request.onProgress = (bytesSent, totalBytes) {
 
 final response = await OhosHttpClient().send(request);
 ```
-
-当前限制：`OhosHttpClient` 只发送 `OhosMultipartRequest.files` 中的第一个文件。需要上传多个文件时，请每个请求只添加一个文件。
 
 ## 取消请求
 

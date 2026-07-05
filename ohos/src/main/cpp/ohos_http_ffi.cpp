@@ -78,6 +78,13 @@ struct StreamRequestTask : RequestTask {
   std::atomic<bool> cancelled{false};
 };
 
+struct MultipartFilePart {
+  std::string field_name;
+  std::string file_path;
+  std::string file_name;
+  std::string content_type;
+};
+
 struct MultipartRequestTask {
   int64_t request_id;
   int64_t dart_port;
@@ -85,10 +92,7 @@ struct MultipartRequestTask {
   std::string url;
   std::string headers_json;
   std::string fields_json;
-  std::string file_field_name;
-  std::string file_path;
-  std::string file_name;
-  std::string file_content_type;
+  std::string files_json;
   int32_t connect_timeout_ms;
   int32_t read_timeout_ms;
   std::atomic<bool> cancelled{false};
@@ -456,6 +460,166 @@ bool ParseJsonStringArray(const std::string& source, std::vector<std::string>* v
     }
     if (error != nullptr) {
       *error = "JSON array has an unexpected token between entries.";
+    }
+    return false;
+  }
+}
+
+bool AssignMultipartFileProperty(
+    MultipartFilePart* part,
+    const std::string& key,
+    const std::string& value,
+    std::string* error) {
+  if (key == "field") {
+    part->field_name = value;
+    return true;
+  }
+  if (key == "filePath") {
+    part->file_path = value;
+    return true;
+  }
+  if (key == "fileName") {
+    part->file_name = value;
+    return true;
+  }
+  if (key == "contentType") {
+    part->content_type = value;
+    return true;
+  }
+  if (error != nullptr) {
+    *error = "Multipart file JSON contains an unknown key: " + key;
+  }
+  return false;
+}
+
+bool ParseJsonMultipartFilesArray(
+    const std::string& source,
+    std::vector<MultipartFilePart>* files_out,
+    std::string* error) {
+  size_t index = 0;
+  SkipJsonWhitespace(source, &index);
+  if (index >= source.size() || source[index] != '[') {
+    if (error != nullptr) {
+      *error = "Multipart files JSON must be an array.";
+    }
+    return false;
+  }
+  ++index;
+
+  while (true) {
+    SkipJsonWhitespace(source, &index);
+    if (index >= source.size()) {
+      if (error != nullptr) {
+        *error = "Multipart files JSON ended unexpectedly.";
+      }
+      return false;
+    }
+    if (source[index] == ']') {
+      ++index;
+      SkipJsonWhitespace(source, &index);
+      if (index != source.size()) {
+        if (error != nullptr) {
+          *error = "Multipart files JSON has trailing content.";
+        }
+        return false;
+      }
+      return true;
+    }
+    if (source[index] != '{') {
+      if (error != nullptr) {
+        *error = "Multipart files JSON entries must be objects.";
+      }
+      return false;
+    }
+    ++index;
+
+    MultipartFilePart file_part;
+    while (true) {
+      SkipJsonWhitespace(source, &index);
+      if (index >= source.size()) {
+        if (error != nullptr) {
+          *error = "Multipart file object ended unexpectedly.";
+        }
+        return false;
+      }
+      if (source[index] == '}') {
+        ++index;
+        break;
+      }
+
+      std::string key;
+      if (!ParseJsonString(source, &index, &key)) {
+        if (error != nullptr) {
+          *error = "Failed to parse a multipart file key.";
+        }
+        return false;
+      }
+
+      SkipJsonWhitespace(source, &index);
+      if (index >= source.size() || source[index] != ':') {
+        if (error != nullptr) {
+          *error = "Multipart file key is missing a value separator.";
+        }
+        return false;
+      }
+      ++index;
+      SkipJsonWhitespace(source, &index);
+
+      std::string value;
+      if (!ParseJsonString(source, &index, &value)) {
+        if (error != nullptr) {
+          *error = "Failed to parse a multipart file value.";
+        }
+        return false;
+      }
+      if (!AssignMultipartFileProperty(&file_part, key, value, error)) {
+        return false;
+      }
+
+      SkipJsonWhitespace(source, &index);
+      if (index >= source.size()) {
+        if (error != nullptr) {
+          *error = "Multipart file object ended unexpectedly after a value.";
+        }
+        return false;
+      }
+      if (source[index] == ',') {
+        ++index;
+        continue;
+      }
+      if (source[index] == '}') {
+        continue;
+      }
+      if (error != nullptr) {
+        *error = "Multipart file object has an unexpected token between entries.";
+      }
+      return false;
+    }
+
+    if (file_part.field_name.empty() || file_part.file_path.empty()) {
+      if (error != nullptr) {
+        *error = "Multipart file entries require non-empty field and filePath values.";
+      }
+      return false;
+    }
+    files_out->push_back(file_part);
+
+    SkipJsonWhitespace(source, &index);
+    if (index >= source.size()) {
+      if (error != nullptr) {
+        *error = "Multipart files JSON ended unexpectedly after an entry.";
+      }
+      return false;
+    }
+    if (source[index] == ',') {
+      ++index;
+      continue;
+    }
+    if (source[index] == ']') {
+      continue;
+    }
+    if (error != nullptr) {
+      *error = "Multipart files JSON has an unexpected token between entries.";
     }
     return false;
   }
@@ -1532,6 +1696,19 @@ void PerformCurlMultipartRequest(const std::shared_ptr<MultipartRequestTask>& ta
     }
   }
 
+  std::vector<MultipartFilePart> parsed_files;
+  if (!task->files_json.empty() && task->files_json != "[]") {
+    std::string files_parse_error;
+    if (!ParseJsonMultipartFilesArray(task->files_json, &parsed_files, &files_parse_error)) {
+      fail_request("HTTP_FFI_FILES_INVALID", files_parse_error);
+      return;
+    }
+  }
+  if (parsed_files.empty()) {
+    fail_request("HTTP_FFI_MULTIPART_FILE_MISSING", "Multipart upload requires at least one file part.");
+    return;
+  }
+
   RemoveHeader(&parsed_headers, "Content-Type");
   RemoveHeader(&parsed_headers, "Content-Length");
 
@@ -1550,31 +1727,6 @@ void PerformCurlMultipartRequest(const std::shared_ptr<MultipartRequestTask>& ta
     raw_headers = curl_slist_append(raw_headers, header_line.c_str());
   }
   std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> request_headers(raw_headers, &curl_slist_free_all);
-
-  struct stat upload_file_stat {};
-  if (stat(task->file_path.c_str(), &upload_file_stat) != 0) {
-    fail_request(
-        "HTTP_FFI_MULTIPART_FILE_NOT_FOUND",
-        std::string("File does not exist: ") + task->file_path + " (" + std::strerror(errno) + ")");
-    return;
-  }
-  if (!S_ISREG(upload_file_stat.st_mode)) {
-    fail_request("HTTP_FFI_MULTIPART_NOT_A_FILE", std::string("Not a regular file: ") + task->file_path);
-    return;
-  }
-
-  std::unique_ptr<FILE, decltype(&std::fclose)> upload_file(
-      std::fopen(task->file_path.c_str(), "rb"),
-      &std::fclose);
-  if (!upload_file) {
-    fail_request(
-        "HTTP_FFI_MULTIPART_FILE_OPEN_FAILED",
-        std::string("Failed to open file: ") + task->file_path + " (" + std::strerror(errno) + ")");
-    return;
-  }
-  CurlMultipartFileSource upload_file_source;
-  upload_file_source.file = upload_file.get();
-  const curl_off_t upload_file_size = static_cast<curl_off_t>(upload_file_stat.st_size);
 
   std::unique_ptr<curl_mime, decltype(&curl_mime_free)> mime(curl_mime_init(handle.get()), &curl_mime_free);
   if (!mime) {
@@ -1599,29 +1751,60 @@ void PerformCurlMultipartRequest(const std::shared_ptr<MultipartRequestTask>& ta
     }
   }
 
-  curl_mimepart* file_part = curl_mime_addpart(mime.get());
-  if (file_part == nullptr) {
-    fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to create the multipart file part.");
-    return;
-  }
-  if (curl_mime_name(file_part, task->file_field_name.c_str()) != CURLE_OK ||
-      curl_mime_data_cb(
-          file_part,
-          upload_file_size,
-          CurlMultipartFileReadCallback,
-          CurlMultipartFileSeekCallback,
-          nullptr,
-          &upload_file_source) != CURLE_OK) {
-    fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to configure the multipart file part.");
-    return;
-  }
-  if (!task->file_name.empty() && curl_mime_filename(file_part, task->file_name.c_str()) != CURLE_OK) {
-    fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to set the multipart filename.");
-    return;
-  }
-  if (!task->file_content_type.empty() && curl_mime_type(file_part, task->file_content_type.c_str()) != CURLE_OK) {
-    fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to set the multipart content type.");
-    return;
+  std::vector<std::unique_ptr<FILE, int (*)(FILE*)>> upload_files;
+  std::vector<CurlMultipartFileSource> upload_file_sources;
+  upload_files.reserve(parsed_files.size());
+  upload_file_sources.reserve(parsed_files.size());
+
+  for (const auto& file : parsed_files) {
+    struct stat upload_file_stat {};
+    if (stat(file.file_path.c_str(), &upload_file_stat) != 0) {
+      fail_request(
+          "HTTP_FFI_MULTIPART_FILE_NOT_FOUND",
+          std::string("File does not exist: ") + file.file_path + " (" + std::strerror(errno) + ")");
+      return;
+    }
+    if (!S_ISREG(upload_file_stat.st_mode)) {
+      fail_request("HTTP_FFI_MULTIPART_NOT_A_FILE", std::string("Not a regular file: ") + file.file_path);
+      return;
+    }
+
+    std::unique_ptr<FILE, int (*)(FILE*)> upload_file(std::fopen(file.file_path.c_str(), "rb"), &std::fclose);
+    if (!upload_file) {
+      fail_request(
+          "HTTP_FFI_MULTIPART_FILE_OPEN_FAILED",
+          std::string("Failed to open file: ") + file.file_path + " (" + std::strerror(errno) + ")");
+      return;
+    }
+    upload_file_sources.push_back(CurlMultipartFileSource{upload_file.get()});
+    CurlMultipartFileSource& upload_file_source = upload_file_sources.back();
+    upload_files.push_back(std::move(upload_file));
+    const curl_off_t upload_file_size = static_cast<curl_off_t>(upload_file_stat.st_size);
+
+    curl_mimepart* file_part = curl_mime_addpart(mime.get());
+    if (file_part == nullptr) {
+      fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to create a multipart file part.");
+      return;
+    }
+    if (curl_mime_name(file_part, file.field_name.c_str()) != CURLE_OK ||
+        curl_mime_data_cb(
+            file_part,
+            upload_file_size,
+            CurlMultipartFileReadCallback,
+            CurlMultipartFileSeekCallback,
+            nullptr,
+            &upload_file_source) != CURLE_OK) {
+      fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to configure a multipart file part.");
+      return;
+    }
+    if (!file.file_name.empty() && curl_mime_filename(file_part, file.file_name.c_str()) != CURLE_OK) {
+      fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to set a multipart filename.");
+      return;
+    }
+    if (!file.content_type.empty() && curl_mime_type(file_part, file.content_type.c_str()) != CURLE_OK) {
+      fail_request("HTTP_FFI_MULTIPART_INIT_FAILED", "Failed to set a multipart content type.");
+      return;
+    }
   }
 
   char error_buffer[CURL_ERROR_SIZE] = {0};
@@ -2479,15 +2662,11 @@ __attribute__((visibility("default"))) int32_t ohos_http_ffi_send_multipart_requ
     const char* url,
     const char* headers_json,
     const char* fields_json,
-    const char* file_field_name,
-    const char* file_path,
-    const char* file_name,
-    const char* file_content_type,
+    const char* files_json,
     int32_t connect_timeout_ms,
     int32_t read_timeout_ms) {
   if (dart_port == 0 || method == nullptr || url == nullptr || headers_json == nullptr || fields_json == nullptr ||
-      file_field_name == nullptr || file_path == nullptr || file_name == nullptr || file_content_type == nullptr ||
-      std::strlen(file_field_name) == 0 || std::strlen(file_path) == 0) {
+      files_json == nullptr || std::strlen(files_json) == 0) {
     return kDispatchInvalidArgument;
   }
 
@@ -2499,10 +2678,7 @@ __attribute__((visibility("default"))) int32_t ohos_http_ffi_send_multipart_requ
   task->url = url;
   task->headers_json = headers_json;
   task->fields_json = fields_json;
-  task->file_field_name = file_field_name;
-  task->file_path = file_path;
-  task->file_name = file_name;
-  task->file_content_type = file_content_type;
+  task->files_json = files_json;
   task->connect_timeout_ms = connect_timeout_ms;
   task->read_timeout_ms = read_timeout_ms;
 

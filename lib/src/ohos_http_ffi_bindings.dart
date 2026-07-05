@@ -6,8 +6,10 @@ typedef _Int32Native = ffi.Int32 Function();
 typedef _Int32Dart = int Function();
 typedef _InitializeApiDlNative = ffi.IntPtr Function(ffi.Pointer<ffi.Void>);
 typedef _InitializeApiDlDart = int Function(ffi.Pointer<ffi.Void>);
-typedef _SetRequestStateNative = ffi.Int32 Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
-typedef _SetRequestStateDart = int Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
+typedef _SetRequestStateNative =
+    ffi.Int32 Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
+typedef _SetRequestStateDart =
+    int Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Pointer<Utf8>);
 typedef _SendRequestAsyncNative =
     ffi.Int32 Function(
       ffi.Int64,
@@ -67,9 +69,6 @@ typedef _SendMultipartRequestAsyncNative =
       ffi.Pointer<Utf8>,
       ffi.Pointer<Utf8>,
       ffi.Pointer<Utf8>,
-      ffi.Pointer<Utf8>,
-      ffi.Pointer<Utf8>,
-      ffi.Pointer<Utf8>,
       ffi.Int32,
       ffi.Int32,
     );
@@ -77,9 +76,6 @@ typedef _SendMultipartRequestAsyncDart =
     int Function(
       int,
       int,
-      ffi.Pointer<Utf8>,
-      ffi.Pointer<Utf8>,
-      ffi.Pointer<Utf8>,
       ffi.Pointer<Utf8>,
       ffi.Pointer<Utf8>,
       ffi.Pointer<Utf8>,
@@ -95,34 +91,50 @@ typedef _SetCaBundlePathDart = int Function(ffi.Pointer<Utf8>);
 
 final class OhosHttpFfiBindings {
   OhosHttpFfiBindings(ffi.DynamicLibrary library)
-    : _libraryVersion = library.lookupFunction<_Int32Native, _Int32Dart>('ohos_http_ffi_library_version'),
-      _bootstrapState = library.lookupFunction<_Int32Native, _Int32Dart>('ohos_http_ffi_bootstrap_state'),
-      _ping = library.lookupFunction<_Int32Native, _Int32Dart>('ohos_http_ffi_ping'),
-      _initializeApiDl = library.lookupFunction<_InitializeApiDlNative, _InitializeApiDlDart>(
-        'ohos_http_ffi_initialize_dart_api',
+    : _libraryVersion = library.lookupFunction<_Int32Native, _Int32Dart>(
+        'ohos_http_ffi_library_version',
       ),
-      _setRequestState = library.lookupFunction<_SetRequestStateNative, _SetRequestStateDart>(
-        'ohos_http_ffi_set_request_state',
+      _bootstrapState = library.lookupFunction<_Int32Native, _Int32Dart>(
+        'ohos_http_ffi_bootstrap_state',
       ),
-      _sendRequestAsync = library.lookupFunction<_SendRequestAsyncNative, _SendRequestAsyncDart>(
-        'ohos_http_ffi_send_request_async',
+      _ping = library.lookupFunction<_Int32Native, _Int32Dart>(
+        'ohos_http_ffi_ping',
       ),
-      _sendStreamRequestAsync = library.lookupFunction<_SendStreamRequestAsyncNative, _SendStreamRequestAsyncDart>(
-        'ohos_http_ffi_send_stream_request_async',
-      ),
-      _cancelStreamRequest = library.lookupFunction<_CancelStreamRequestNative, _CancelStreamRequestDart>(
-        'ohos_http_ffi_cancel_stream_request',
-      ),
-      _sendMultipartRequestAsync = library
-          .lookupFunction<_SendMultipartRequestAsyncNative, _SendMultipartRequestAsyncDart>(
-            'ohos_http_ffi_send_multipart_request_async',
+      _initializeApiDl = library
+          .lookupFunction<_InitializeApiDlNative, _InitializeApiDlDart>(
+            'ohos_http_ffi_initialize_dart_api',
           ),
-      _cancelMultipartRequest = library.lookupFunction<_CancelMultipartRequestNative, _CancelMultipartRequestDart>(
-        'ohos_http_ffi_cancel_multipart_request',
-      ),
-      _setCaBundlePath = library.lookupFunction<_SetCaBundlePathNative, _SetCaBundlePathDart>(
-        'ohos_http_ffi_set_ca_bundle_path',
-      );
+      _setRequestState = library
+          .lookupFunction<_SetRequestStateNative, _SetRequestStateDart>(
+            'ohos_http_ffi_set_request_state',
+          ),
+      _sendRequestAsync = library
+          .lookupFunction<_SendRequestAsyncNative, _SendRequestAsyncDart>(
+            'ohos_http_ffi_send_request_async',
+          ),
+      _sendStreamRequestAsync = library
+          .lookupFunction<
+            _SendStreamRequestAsyncNative,
+            _SendStreamRequestAsyncDart
+          >('ohos_http_ffi_send_stream_request_async'),
+      _cancelStreamRequest = library
+          .lookupFunction<_CancelStreamRequestNative, _CancelStreamRequestDart>(
+            'ohos_http_ffi_cancel_stream_request',
+          ),
+      _sendMultipartRequestAsync = library
+          .lookupFunction<
+            _SendMultipartRequestAsyncNative,
+            _SendMultipartRequestAsyncDart
+          >('ohos_http_ffi_send_multipart_request_async'),
+      _cancelMultipartRequest = library
+          .lookupFunction<
+            _CancelMultipartRequestNative,
+            _CancelMultipartRequestDart
+          >('ohos_http_ffi_cancel_multipart_request'),
+      _setCaBundlePath = library
+          .lookupFunction<_SetCaBundlePathNative, _SetCaBundlePathDart>(
+            'ohos_http_ffi_set_ca_bundle_path',
+          );
 
   final _Int32Dart _libraryVersion;
   final _Int32Dart _bootstrapState;
@@ -144,8 +156,11 @@ final class OhosHttpFfiBindings {
 
   int initializeApiDl(ffi.Pointer<ffi.Void> data) => _initializeApiDl(data);
 
-  int setRequestState(ffi.Pointer<Utf8> headersJson, ffi.Pointer<Utf8> serverUrlsJson, ffi.Pointer<Utf8> token) =>
-      _setRequestState(headersJson, serverUrlsJson, token);
+  int setRequestState(
+    ffi.Pointer<Utf8> headersJson,
+    ffi.Pointer<Utf8> serverUrlsJson,
+    ffi.Pointer<Utf8> token,
+  ) => _setRequestState(headersJson, serverUrlsJson, token);
 
   int sendRequestAsync(
     int requestId,
@@ -200,10 +215,7 @@ final class OhosHttpFfiBindings {
     ffi.Pointer<Utf8> url,
     ffi.Pointer<Utf8> headersJson,
     ffi.Pointer<Utf8> fieldsJson,
-    ffi.Pointer<Utf8> fileFieldName,
-    ffi.Pointer<Utf8> filePath,
-    ffi.Pointer<Utf8> fileName,
-    ffi.Pointer<Utf8> contentType,
+    ffi.Pointer<Utf8> filesJson,
     int connectTimeoutMs,
     int readTimeoutMs,
   ) => _sendMultipartRequestAsync(
@@ -213,15 +225,14 @@ final class OhosHttpFfiBindings {
     url,
     headersJson,
     fieldsJson,
-    fileFieldName,
-    filePath,
-    fileName,
-    contentType,
+    filesJson,
     connectTimeoutMs,
     readTimeoutMs,
   );
 
-  int cancelMultipartRequest(int requestId) => _cancelMultipartRequest(requestId);
+  int cancelMultipartRequest(int requestId) =>
+      _cancelMultipartRequest(requestId);
 
-  int setCaBundlePath(ffi.Pointer<Utf8> caBundlePath) => _setCaBundlePath(caBundlePath);
+  int setCaBundlePath(ffi.Pointer<Utf8> caBundlePath) =>
+      _setCaBundlePath(caBundlePath);
 }

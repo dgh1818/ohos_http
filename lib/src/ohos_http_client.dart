@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
@@ -173,7 +174,6 @@ class OhosHttpClient extends http.BaseClient {
 
     request.finalize();
 
-    final file = request.files.first;
     final requestId = _nextRequestId++;
     final pending = _PendingMultipartUpload(
       owner: this,
@@ -207,10 +207,7 @@ class OhosHttpClient extends http.BaseClient {
         url: request.url,
         headers: _buildTransportHeaders(request.headers),
         fields: Map<String, String>.from(request.fields),
-        fileFieldName: file.field,
-        filePath: file.filePath,
-        fileName: file.filename,
-        contentType: file.contentType,
+        files: createOhosHttpFfiMultipartFileParts(request.files),
         connectTimeoutMs: _connectTimeoutMs,
         readTimeoutMs: _readTimeoutMs,
         onProgress: (bytesSent, totalBytes) {
@@ -353,6 +350,22 @@ Map<String, String> _normalizeResponseHeaders(Map<String, String> headers) {
     }
   }
   return normalized;
+}
+
+@visibleForTesting
+List<OhosHttpFfiMultipartFilePart> createOhosHttpFfiMultipartFileParts(
+  List<OhosMultipartFile> files,
+) {
+  return files
+      .map(
+        (file) => OhosHttpFfiMultipartFilePart(
+          field: file.field,
+          filePath: file.filePath,
+          fileName: file.filename,
+          contentType: file.contentType,
+        ),
+      )
+      .toList(growable: false);
 }
 
 class _PendingNativeStreamRequest {

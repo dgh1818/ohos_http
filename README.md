@@ -113,9 +113,9 @@ If the libcurl FFI transport is unavailable, streaming requests fail with
 
 ## Multipart Upload
 
-Use `OhosMultipartRequest` when uploading a file from disk on OHOS. The file path
-is passed to the native libcurl upload path, so the Dart client does not build
-the full multipart body in memory.
+Use `OhosMultipartRequest` when uploading one or more files from disk on OHOS.
+Each file path is passed to the native libcurl upload path, so the Dart client
+does not build the full multipart body in memory.
 
 ```dart
 import 'package:ohos_http/ohos_http.dart';
@@ -149,9 +149,6 @@ request.onProgress = (bytesSent, totalBytes) {
 
 final response = await OhosHttpClient().send(request);
 ```
-
-Current limitation: `OhosHttpClient` sends the first file in
-`OhosMultipartRequest.files`. Add one file per request.
 
 ## Cancellation
 

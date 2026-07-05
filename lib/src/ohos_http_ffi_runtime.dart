@@ -52,6 +52,27 @@ final class OhosHttpFfiMultipartHandlers {
   final void Function(int bytesSent, int totalBytes)? onProgress;
 }
 
+final class OhosHttpFfiMultipartFilePart {
+  const OhosHttpFfiMultipartFilePart({
+    required this.field,
+    required this.filePath,
+    required this.fileName,
+    required this.contentType,
+  });
+
+  final String field;
+  final String filePath;
+  final String fileName;
+  final String contentType;
+
+  Map<String, String> toJson() => <String, String>{
+    'field': field,
+    'filePath': filePath,
+    'fileName': fileName,
+    'contentType': contentType,
+  };
+}
+
 final class OhosHttpFfiException implements Exception {
   const OhosHttpFfiException(this.code, this.message);
 
@@ -365,10 +386,7 @@ final class OhosHttpFfiRuntime {
     required Uri url,
     required Map<String, String> headers,
     required Map<String, String> fields,
-    required String fileFieldName,
-    required String filePath,
-    required String fileName,
-    required String contentType,
+    required List<OhosHttpFfiMultipartFilePart> files,
     required int connectTimeoutMs,
     required int readTimeoutMs,
     void Function(int bytesSent, int totalBytes)? onProgress,
@@ -398,10 +416,9 @@ final class OhosHttpFfiRuntime {
     final urlPtr = url.toString().toNativeUtf8();
     final headersPtr = jsonEncode(headers).toNativeUtf8();
     final fieldsPtr = jsonEncode(fields).toNativeUtf8();
-    final fileFieldNamePtr = fileFieldName.toNativeUtf8();
-    final filePathPtr = filePath.toNativeUtf8();
-    final fileNamePtr = fileName.toNativeUtf8();
-    final contentTypePtr = contentType.toNativeUtf8();
+    final filesPtr = jsonEncode(
+      files.map((file) => file.toJson()).toList(growable: false),
+    ).toNativeUtf8();
 
     try {
       final dispatchResult = _bindings!.sendMultipartRequestAsync(
@@ -411,10 +428,7 @@ final class OhosHttpFfiRuntime {
         urlPtr,
         headersPtr,
         fieldsPtr,
-        fileFieldNamePtr,
-        filePathPtr,
-        fileNamePtr,
-        contentTypePtr,
+        filesPtr,
         connectTimeoutMs,
         readTimeoutMs,
       );
@@ -431,10 +445,7 @@ final class OhosHttpFfiRuntime {
       malloc.free(urlPtr);
       malloc.free(headersPtr);
       malloc.free(fieldsPtr);
-      malloc.free(fileFieldNamePtr);
-      malloc.free(filePathPtr);
-      malloc.free(fileNamePtr);
-      malloc.free(contentTypePtr);
+      malloc.free(filesPtr);
     }
   }
 
