@@ -78,10 +78,8 @@ worker.
 
 ## Streaming Responses
 
-Streaming responses are routed through the libcurl FFI transport when either:
-
-- the URL path ends with `/sync/stream`
-- the request `Accept` header contains `application/jsonlines+json`
+Streaming responses are routed through the libcurl FFI transport when the
+request `Accept` header contains `application/jsonlines+json`.
 
 Example:
 

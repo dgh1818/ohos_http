@@ -237,10 +237,6 @@ class OhosHttpClient extends http.BaseClient {
   }
 
   bool _shouldStreamResponse(http.BaseRequest request) {
-    if (request.url.path.endsWith('/sync/stream')) {
-      return true;
-    }
-
     final accept = _getHeaderValue(request.headers, 'accept');
     return accept?.contains('application/jsonlines+json') ?? false;
   }
