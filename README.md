@@ -1,5 +1,7 @@
 # ohos_http
 
+Language: English | [中文](README.zh-CN.md)
+
 `ohos_http` exposes OpenHarmony NetworkKit as a `package:http` client and adds
 temporary libcurl-backed transports for OHOS cases that need streaming callbacks
 or file-path multipart upload.
