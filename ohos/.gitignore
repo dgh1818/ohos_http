@@ -1,9 +1,12 @@
 /node_modules
 /oh_modules
+/.hvigor
 /local.properties
 /.preview
 /.idea
 /build
+/build_manual
+/hvigor
 /.cxx
 /.test
 /BuildProfile.ets
