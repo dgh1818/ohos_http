@@ -1,6 +1,12 @@
 {
   "apiType": "stageMode",
   "buildOption": {
+    "sourceOption": {
+      "workers": [
+        "./src/main/ets/components/plugin/NativeHttpRequestWorker.ets",
+        "./src/main/ets/components/plugin/NativeMultipartUploadWorker.ets"
+      ]
+    }
   },
   "targets": [
     {

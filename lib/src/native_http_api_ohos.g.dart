@@ -15,11 +15,7 @@ PlatformException _createConnectionError(String channelName) {
   );
 }
 
-List<Object?> wrapResponse({
-  Object? result,
-  PlatformException? error,
-  bool empty = false,
-}) {
+List<Object?> wrapResponse({Object? result, PlatformException? error, bool empty = false}) {
   if (empty) {
     return <Object?>[];
   }
@@ -28,24 +24,20 @@ List<Object?> wrapResponse({
   }
   return <Object?>[error.code, error.message, error.details];
 }
-
 bool _deepEquals(Object? a, Object? b) {
   if (a is List && b is List) {
     return a.length == b.length &&
-        a.indexed.every(
-          ((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]),
-        );
+        a.indexed
+        .every(((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]));
   }
   if (a is Map && b is Map) {
-    return a.length == b.length &&
-        a.entries.every(
-          (MapEntry<Object?, Object?> entry) =>
-              (b as Map<Object?, Object?>).containsKey(entry.key) &&
-              _deepEquals(entry.value, b[entry.key]),
-        );
+    return a.length == b.length && a.entries.every((MapEntry<Object?, Object?> entry) =>
+        (b as Map<Object?, Object?>).containsKey(entry.key) &&
+        _deepEquals(entry.value, b[entry.key]));
   }
   return a == b;
 }
+
 
 class NativeHttpRequestOhos {
   NativeHttpRequestOhos({
@@ -53,6 +45,8 @@ class NativeHttpRequestOhos {
     required this.url,
     required this.headers,
     this.body,
+    this.connectTimeoutMs,
+    this.readTimeoutMs,
   });
 
   String method;
@@ -63,13 +57,23 @@ class NativeHttpRequestOhos {
 
   Uint8List? body;
 
+  int? connectTimeoutMs;
+
+  int? readTimeoutMs;
+
   List<Object?> _toList() {
-    return <Object?>[method, url, headers, body];
+    return <Object?>[
+      method,
+      url,
+      headers,
+      body,
+      connectTimeoutMs,
+      readTimeoutMs,
+    ];
   }
 
   Object encode() {
-    return _toList();
-  }
+    return _toList();  }
 
   static NativeHttpRequestOhos decode(Object result) {
     result as List<Object?>;
@@ -78,6 +82,8 @@ class NativeHttpRequestOhos {
       url: result[1]! as String,
       headers: (result[2] as Map<Object?, Object?>?)!.cast<String, String>(),
       body: result[3] as Uint8List?,
+      connectTimeoutMs: result[4] as int?,
+      readTimeoutMs: result[5] as int?,
     );
   }
 
@@ -95,7 +101,8 @@ class NativeHttpRequestOhos {
 
   @override
   // ignore: avoid_equals_and_hash_code_on_mutable_classes
-  int get hashCode => Object.hashAll(_toList());
+  int get hashCode => Object.hashAll(_toList())
+;
 }
 
 class NativeHttpResponseOhos {
@@ -112,12 +119,15 @@ class NativeHttpResponseOhos {
   Uint8List body;
 
   List<Object?> _toList() {
-    return <Object?>[statusCode, headers, body];
+    return <Object?>[
+      statusCode,
+      headers,
+      body,
+    ];
   }
 
   Object encode() {
-    return _toList();
-  }
+    return _toList();  }
 
   static NativeHttpResponseOhos decode(Object result) {
     result as List<Object?>;
@@ -142,23 +152,29 @@ class NativeHttpResponseOhos {
 
   @override
   // ignore: avoid_equals_and_hash_code_on_mutable_classes
-  int get hashCode => Object.hashAll(_toList());
+  int get hashCode => Object.hashAll(_toList())
+;
 }
 
 class NativeHttpStreamHeadersOhos {
-  NativeHttpStreamHeadersOhos({this.statusCode, required this.headers});
+  NativeHttpStreamHeadersOhos({
+    this.statusCode,
+    required this.headers,
+  });
 
   int? statusCode;
 
   Map<String, String> headers;
 
   List<Object?> _toList() {
-    return <Object?>[statusCode, headers];
+    return <Object?>[
+      statusCode,
+      headers,
+    ];
   }
 
   Object encode() {
-    return _toList();
-  }
+    return _toList();  }
 
   static NativeHttpStreamHeadersOhos decode(Object result) {
     result as List<Object?>;
@@ -171,8 +187,7 @@ class NativeHttpStreamHeadersOhos {
   @override
   // ignore: avoid_equals_and_hash_code_on_mutable_classes
   bool operator ==(Object other) {
-    if (other is! NativeHttpStreamHeadersOhos ||
-        other.runtimeType != runtimeType) {
+    if (other is! NativeHttpStreamHeadersOhos || other.runtimeType != runtimeType) {
       return false;
     }
     if (identical(this, other)) {
@@ -183,8 +198,96 @@ class NativeHttpStreamHeadersOhos {
 
   @override
   // ignore: avoid_equals_and_hash_code_on_mutable_classes
-  int get hashCode => Object.hashAll(_toList());
+  int get hashCode => Object.hashAll(_toList())
+;
 }
+
+class NativeHttpMultipartRequestOhos {
+  NativeHttpMultipartRequestOhos({
+    required this.method,
+    required this.url,
+    required this.headers,
+    required this.fields,
+    required this.fileFieldName,
+    required this.filePath,
+    required this.fileName,
+    required this.contentType,
+    this.connectTimeoutMs,
+    this.readTimeoutMs,
+  });
+
+  String method;
+
+  String url;
+
+  Map<String, String> headers;
+
+  Map<String, String> fields;
+
+  String fileFieldName;
+
+  String filePath;
+
+  String fileName;
+
+  String contentType;
+
+  int? connectTimeoutMs;
+
+  int? readTimeoutMs;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      method,
+      url,
+      headers,
+      fields,
+      fileFieldName,
+      filePath,
+      fileName,
+      contentType,
+      connectTimeoutMs,
+      readTimeoutMs,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static NativeHttpMultipartRequestOhos decode(Object result) {
+    result as List<Object?>;
+    return NativeHttpMultipartRequestOhos(
+      method: result[0]! as String,
+      url: result[1]! as String,
+      headers: (result[2] as Map<Object?, Object?>?)!.cast<String, String>(),
+      fields: (result[3] as Map<Object?, Object?>?)!.cast<String, String>(),
+      fileFieldName: result[4]! as String,
+      filePath: result[5]! as String,
+      fileName: result[6]! as String,
+      contentType: result[7]! as String,
+      connectTimeoutMs: result[8] as int?,
+      readTimeoutMs: result[9] as int?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! NativeHttpMultipartRequestOhos || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(encode(), other.encode());
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => Object.hashAll(_toList())
+;
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -193,14 +296,17 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is int) {
       buffer.putUint8(4);
       buffer.putInt64(value);
-    } else if (value is NativeHttpRequestOhos) {
+    }    else if (value is NativeHttpRequestOhos) {
       buffer.putUint8(129);
       writeValue(buffer, value.encode());
-    } else if (value is NativeHttpResponseOhos) {
+    }    else if (value is NativeHttpResponseOhos) {
       buffer.putUint8(130);
       writeValue(buffer, value.encode());
-    } else if (value is NativeHttpStreamHeadersOhos) {
+    }    else if (value is NativeHttpStreamHeadersOhos) {
       buffer.putUint8(131);
+      writeValue(buffer, value.encode());
+    }    else if (value is NativeHttpMultipartRequestOhos) {
+      buffer.putUint8(132);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -210,12 +316,14 @@ class _PigeonCodec extends StandardMessageCodec {
   @override
   Object? readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
-      case 129:
+      case 129: 
         return NativeHttpRequestOhos.decode(readValue(buffer)!);
-      case 130:
+      case 130: 
         return NativeHttpResponseOhos.decode(readValue(buffer)!);
-      case 131:
+      case 131: 
         return NativeHttpStreamHeadersOhos.decode(readValue(buffer)!);
+      case 132: 
+        return NativeHttpMultipartRequestOhos.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -226,33 +334,23 @@ class NativeHttpApiOhos {
   /// Constructor for [NativeHttpApiOhos].  The [binaryMessenger] named argument is
   /// available for dependency injection.  If it is left null, the default
   /// BinaryMessenger will be used which routes to the host platform.
-  NativeHttpApiOhos({
-    BinaryMessenger? binaryMessenger,
-    String messageChannelSuffix = '',
-  }) : pigeonVar_binaryMessenger = binaryMessenger,
-       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
-           ? '.$messageChannelSuffix'
-           : '';
+  NativeHttpApiOhos({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
+      : pigeonVar_binaryMessenger = binaryMessenger,
+        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
   final BinaryMessenger? pigeonVar_binaryMessenger;
 
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
   final String pigeonVar_messageChannelSuffix;
 
-  Future<NativeHttpResponseOhos> sendRequest(
-    NativeHttpRequestOhos request,
-  ) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.sendRequest$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
-          pigeonVar_channelName,
-          pigeonChannelCodec,
-          binaryMessenger: pigeonVar_binaryMessenger,
-        );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
-      <Object?>[request],
+  Future<NativeHttpResponseOhos> sendRequest(NativeHttpRequestOhos request) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.sendRequest$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
     );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[request]);
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_sendFuture as List<Object?>?;
     if (pigeonVar_replyList == null) {
@@ -273,21 +371,14 @@ class NativeHttpApiOhos {
     }
   }
 
-  Future<void> sendStreamRequest(
-    int requestId,
-    NativeHttpRequestOhos request,
-  ) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.sendStreamRequest$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
-          pigeonVar_channelName,
-          pigeonChannelCodec,
-          binaryMessenger: pigeonVar_binaryMessenger,
-        );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
-      <Object?>[requestId, request],
+  Future<void> sendStreamRequest(int requestId, NativeHttpRequestOhos request) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.sendStreamRequest$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
     );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[requestId, request]);
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_sendFuture as List<Object?>?;
     if (pigeonVar_replyList == null) {
@@ -304,17 +395,64 @@ class NativeHttpApiOhos {
   }
 
   Future<void> cancelStreamRequest(int requestId) async {
-    final String pigeonVar_channelName =
-        'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.cancelStreamRequest$pigeonVar_messageChannelSuffix';
-    final BasicMessageChannel<Object?> pigeonVar_channel =
-        BasicMessageChannel<Object?>(
-          pigeonVar_channelName,
-          pigeonChannelCodec,
-          binaryMessenger: pigeonVar_binaryMessenger,
-        );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
-      <Object?>[requestId],
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.cancelStreamRequest$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
     );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[requestId]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  Future<NativeHttpResponseOhos> sendMultipartRequest(int requestId, NativeHttpMultipartRequestOhos request) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.sendMultipartRequest$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[requestId, request]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else if (pigeonVar_replyList[0] == null) {
+      throw PlatformException(
+        code: 'null-error',
+        message: 'Host platform returned null value for non-null return value.',
+      );
+    } else {
+      return (pigeonVar_replyList[0] as NativeHttpResponseOhos?)!;
+    }
+  }
+
+  Future<void> cancelMultipartRequest(int requestId) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.cancelMultipartRequest$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[requestId]);
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_sendFuture as List<Object?>?;
     if (pigeonVar_replyList == null) {
@@ -334,10 +472,7 @@ class NativeHttpApiOhos {
 abstract class NativeHttpFlutterApiOhos {
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
 
-  Future<void> onStreamHeaders(
-    int requestId,
-    NativeHttpStreamHeadersOhos response,
-  );
+  Future<void> onStreamHeaders(int requestId, NativeHttpStreamHeadersOhos response);
 
   Future<void> onStreamData(int requestId, Uint8List chunk);
 
@@ -345,172 +480,152 @@ abstract class NativeHttpFlutterApiOhos {
 
   Future<void> onStreamError(int requestId, String code, String message);
 
-  static void setUp(
-    NativeHttpFlutterApiOhos? api, {
-    BinaryMessenger? binaryMessenger,
-    String messageChannelSuffix = '',
-  }) {
-    messageChannelSuffix = messageChannelSuffix.isNotEmpty
-        ? '.$messageChannelSuffix'
-        : '';
+  Future<void> onUploadProgress(int requestId, int bytesSent, int totalBytes);
+
+  static void setUp(NativeHttpFlutterApiOhos? api, {BinaryMessenger? binaryMessenger, String messageChannelSuffix = '',}) {
+    messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
     {
-      final BasicMessageChannel<Object?>
-      pigeonVar_channel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders$messageChannelSuffix',
-        pigeonChannelCodec,
-        binaryMessenger: binaryMessenger,
-      );
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
-          assert(
-            message != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders was null.',
-          );
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final int? arg_requestId = (args[0] as int?);
-          assert(
-            arg_requestId != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders was null, expected non-null int.',
-          );
-          final NativeHttpStreamHeadersOhos? arg_response =
-              (args[1] as NativeHttpStreamHeadersOhos?);
-          assert(
-            arg_response != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders was null, expected non-null NativeHttpStreamHeadersOhos.',
-          );
+          assert(arg_requestId != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders was null, expected non-null int.');
+          final NativeHttpStreamHeadersOhos? arg_response = (args[1] as NativeHttpStreamHeadersOhos?);
+          assert(arg_response != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamHeaders was null, expected non-null NativeHttpStreamHeadersOhos.');
           try {
             await api.onStreamHeaders(arg_requestId!, arg_response!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-              error: PlatformException(code: 'error', message: e.toString()),
-            );
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }
     }
     {
-      final BasicMessageChannel<Object?>
-      pigeonVar_channel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData$messageChannelSuffix',
-        pigeonChannelCodec,
-        binaryMessenger: binaryMessenger,
-      );
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
-          assert(
-            message != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData was null.',
-          );
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final int? arg_requestId = (args[0] as int?);
-          assert(
-            arg_requestId != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData was null, expected non-null int.',
-          );
+          assert(arg_requestId != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData was null, expected non-null int.');
           final Uint8List? arg_chunk = (args[1] as Uint8List?);
-          assert(
-            arg_chunk != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData was null, expected non-null Uint8List.',
-          );
+          assert(arg_chunk != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamData was null, expected non-null Uint8List.');
           try {
             await api.onStreamData(arg_requestId!, arg_chunk!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-              error: PlatformException(code: 'error', message: e.toString()),
-            );
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }
     }
     {
-      final BasicMessageChannel<Object?>
-      pigeonVar_channel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete$messageChannelSuffix',
-        pigeonChannelCodec,
-        binaryMessenger: binaryMessenger,
-      );
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
-          assert(
-            message != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete was null.',
-          );
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final int? arg_requestId = (args[0] as int?);
-          assert(
-            arg_requestId != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete was null, expected non-null int.',
-          );
+          assert(arg_requestId != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete was null, expected non-null int.');
           final int? arg_statusCode = (args[1] as int?);
-          assert(
-            arg_statusCode != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete was null, expected non-null int.',
-          );
+          assert(arg_statusCode != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamComplete was null, expected non-null int.');
           try {
             await api.onStreamComplete(arg_requestId!, arg_statusCode!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-              error: PlatformException(code: 'error', message: e.toString()),
-            );
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }
     }
     {
-      final BasicMessageChannel<Object?>
-      pigeonVar_channel = BasicMessageChannel<Object?>(
-        'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError$messageChannelSuffix',
-        pigeonChannelCodec,
-        binaryMessenger: binaryMessenger,
-      );
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
       if (api == null) {
         pigeonVar_channel.setMessageHandler(null);
       } else {
         pigeonVar_channel.setMessageHandler((Object? message) async {
-          assert(
-            message != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null.',
-          );
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null.');
           final List<Object?> args = (message as List<Object?>?)!;
           final int? arg_requestId = (args[0] as int?);
-          assert(
-            arg_requestId != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null, expected non-null int.',
-          );
+          assert(arg_requestId != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null, expected non-null int.');
           final String? arg_code = (args[1] as String?);
-          assert(
-            arg_code != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null, expected non-null String.',
-          );
+          assert(arg_code != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null, expected non-null String.');
           final String? arg_message = (args[2] as String?);
-          assert(
-            arg_message != null,
-            'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null, expected non-null String.',
-          );
+          assert(arg_message != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onStreamError was null, expected non-null String.');
           try {
             await api.onStreamError(arg_requestId!, arg_code!, arg_message!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);
-          } catch (e) {
-            return wrapResponse(
-              error: PlatformException(code: 'error', message: e.toString()),
-            );
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
+          }
+        });
+      }
+    }
+    {
+      final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+          'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onUploadProgress$messageChannelSuffix', pigeonChannelCodec,
+          binaryMessenger: binaryMessenger);
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          assert(message != null,
+          'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onUploadProgress was null.');
+          final List<Object?> args = (message as List<Object?>?)!;
+          final int? arg_requestId = (args[0] as int?);
+          assert(arg_requestId != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onUploadProgress was null, expected non-null int.');
+          final int? arg_bytesSent = (args[1] as int?);
+          assert(arg_bytesSent != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onUploadProgress was null, expected non-null int.');
+          final int? arg_totalBytes = (args[2] as int?);
+          assert(arg_totalBytes != null,
+              'Argument for dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onUploadProgress was null, expected non-null int.');
+          try {
+            await api.onUploadProgress(arg_requestId!, arg_bytesSent!, arg_totalBytes!);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          }          catch (e) {
+            return wrapResponse(error: PlatformException(code: 'error', message: e.toString()));
           }
         });
       }

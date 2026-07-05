@@ -4,6 +4,9 @@ import { BinaryMessenger,TaskQueue } from '@ohos/flutter_ohos/src/main/ets/plugi
 import MessageCodec from '@ohos/flutter_ohos/src/main/ets/plugin/common/MessageCodec';
 import { ByteBuffer } from '@ohos/flutter_ohos/src/main/ets/util/ByteBuffer';
 
+// Manual post-generation fix: the OHOS pigeon fork still emits number[] for
+// byte arrays here. Keep these bridge payloads as Uint8Array until upstream is fixed.
+
 
 /** Error class for passing custom error details to Flutter via a thrown PlatformException. */
 export class FlutterError implements Error {
@@ -86,11 +89,33 @@ export class NativeHttpRequestOhos {
     return this.body;
   }
 
-  constructor(method?: string, url?: string, headers?: Map<string, string>, body?: Uint8Array) {
+  private connectTimeoutMs?: number;
+
+  public setConnectTimeoutMs(connectTimeoutMs:number):void {
+    this.connectTimeoutMs = connectTimeoutMs;
+  }
+
+  getConnectTimeoutMs(): number | undefined{
+    return this.connectTimeoutMs;
+  }
+
+  private readTimeoutMs?: number;
+
+  public setReadTimeoutMs(readTimeoutMs:number):void {
+    this.readTimeoutMs = readTimeoutMs;
+  }
+
+  getReadTimeoutMs(): number | undefined{
+    return this.readTimeoutMs;
+  }
+
+  constructor(method?: string, url?: string, headers?: Map<string, string>, body?: Uint8Array, connectTimeoutMs?: number, readTimeoutMs?: number) {
     this.method = method;
     this.url = url;
     this.headers = headers;
     this.body = body;
+    this.connectTimeoutMs = connectTimeoutMs;
+    this.readTimeoutMs = readTimeoutMs;
   }
 
   toList(): Object[] {
@@ -107,6 +132,12 @@ export class NativeHttpRequestOhos {
     if(this.body !==undefined){
       arr.push(this.body);
     }
+    if(this.connectTimeoutMs !==undefined){
+      arr.push(this.connectTimeoutMs);
+    }
+    if(this.readTimeoutMs !==undefined){
+      arr.push(this.readTimeoutMs);
+    }
     return arr;
   }
 
@@ -120,6 +151,10 @@ export class NativeHttpRequestOhos {
     pigeonResult.setHeaders(headers as Map<string, string>);
     let body: Object = arr[3];
     pigeonResult.setBody(body as Uint8Array);
+    let connectTimeoutMs: Object = arr[4];
+    pigeonResult.setConnectTimeoutMs(connectTimeoutMs as number);
+    let readTimeoutMs: Object = arr[5];
+    pigeonResult.setReadTimeoutMs(readTimeoutMs as number);
     return pigeonResult;
   }
 }
@@ -236,6 +271,182 @@ export class NativeHttpStreamHeadersOhos {
   }
 }
 
+/* Generated class from Pigeon that represents data sent in messages.*/
+export class NativeHttpMultipartRequestOhos {
+  private method?: string;
+
+  public setMethod(method:string):void {
+    this.method = method;
+  }
+
+  getMethod(): string | undefined{
+    return this.method;
+  }
+
+  private url?: string;
+
+  public setUrl(url:string):void {
+    this.url = url;
+  }
+
+  getUrl(): string | undefined{
+    return this.url;
+  }
+
+  private headers?: Map<string, string>;
+
+  public setHeaders(headers:Map<string, string>):void {
+    this.headers = headers;
+  }
+
+  getHeaders(): Map<string, string> | undefined{
+    return this.headers;
+  }
+
+  private fields?: Map<string, string>;
+
+  public setFields(fields:Map<string, string>):void {
+    this.fields = fields;
+  }
+
+  getFields(): Map<string, string> | undefined{
+    return this.fields;
+  }
+
+  private fileFieldName?: string;
+
+  public setFileFieldName(fileFieldName:string):void {
+    this.fileFieldName = fileFieldName;
+  }
+
+  getFileFieldName(): string | undefined{
+    return this.fileFieldName;
+  }
+
+  private filePath?: string;
+
+  public setFilePath(filePath:string):void {
+    this.filePath = filePath;
+  }
+
+  getFilePath(): string | undefined{
+    return this.filePath;
+  }
+
+  private fileName?: string;
+
+  public setFileName(fileName:string):void {
+    this.fileName = fileName;
+  }
+
+  getFileName(): string | undefined{
+    return this.fileName;
+  }
+
+  private contentType?: string;
+
+  public setContentType(contentType:string):void {
+    this.contentType = contentType;
+  }
+
+  getContentType(): string | undefined{
+    return this.contentType;
+  }
+
+  private connectTimeoutMs?: number;
+
+  public setConnectTimeoutMs(connectTimeoutMs:number):void {
+    this.connectTimeoutMs = connectTimeoutMs;
+  }
+
+  getConnectTimeoutMs(): number | undefined{
+    return this.connectTimeoutMs;
+  }
+
+  private readTimeoutMs?: number;
+
+  public setReadTimeoutMs(readTimeoutMs:number):void {
+    this.readTimeoutMs = readTimeoutMs;
+  }
+
+  getReadTimeoutMs(): number | undefined{
+    return this.readTimeoutMs;
+  }
+
+  constructor(method?: string, url?: string, headers?: Map<string, string>, fields?: Map<string, string>, fileFieldName?: string, filePath?: string, fileName?: string, contentType?: string, connectTimeoutMs?: number, readTimeoutMs?: number) {
+    this.method = method;
+    this.url = url;
+    this.headers = headers;
+    this.fields = fields;
+    this.fileFieldName = fileFieldName;
+    this.filePath = filePath;
+    this.fileName = fileName;
+    this.contentType = contentType;
+    this.connectTimeoutMs = connectTimeoutMs;
+    this.readTimeoutMs = readTimeoutMs;
+  }
+
+  toList(): Object[] {
+    let arr: Object[] = new Array();
+    if(this.method !==undefined){
+      arr.push(this.method);
+    }
+    if(this.url !==undefined){
+      arr.push(this.url);
+    }
+    if(this.headers !==undefined){
+      arr.push(this.headers);
+    }
+    if(this.fields !==undefined){
+      arr.push(this.fields);
+    }
+    if(this.fileFieldName !==undefined){
+      arr.push(this.fileFieldName);
+    }
+    if(this.filePath !==undefined){
+      arr.push(this.filePath);
+    }
+    if(this.fileName !==undefined){
+      arr.push(this.fileName);
+    }
+    if(this.contentType !==undefined){
+      arr.push(this.contentType);
+    }
+    if(this.connectTimeoutMs !==undefined){
+      arr.push(this.connectTimeoutMs);
+    }
+    if(this.readTimeoutMs !==undefined){
+      arr.push(this.readTimeoutMs);
+    }
+    return arr;
+  }
+
+  static fromList(arr: Object[]): NativeHttpMultipartRequestOhos {
+    let pigeonResult: NativeHttpMultipartRequestOhos = new NativeHttpMultipartRequestOhos();
+    let method: Object = arr[0];
+    pigeonResult.setMethod(method as string);
+    let url: Object = arr[1];
+    pigeonResult.setUrl(url as string);
+    let headers: Object = arr[2];
+    pigeonResult.setHeaders(headers as Map<string, string>);
+    let fields: Object = arr[3];
+    pigeonResult.setFields(fields as Map<string, string>);
+    let fileFieldName: Object = arr[4];
+    pigeonResult.setFileFieldName(fileFieldName as string);
+    let filePath: Object = arr[5];
+    pigeonResult.setFilePath(filePath as string);
+    let fileName: Object = arr[6];
+    pigeonResult.setFileName(fileName as string);
+    let contentType: Object = arr[7];
+    pigeonResult.setContentType(contentType as string);
+    let connectTimeoutMs: Object = arr[8];
+    pigeonResult.setConnectTimeoutMs(connectTimeoutMs as number);
+    let readTimeoutMs: Object = arr[9];
+    pigeonResult.setReadTimeoutMs(readTimeoutMs as number);
+    return pigeonResult;
+  }
+}
+
 export class PigeonCodec extends StandardMessageCodec {
   static readonly INSTANCE: PigeonCodec  = new PigeonCodec();
 
@@ -256,6 +467,8 @@ export class PigeonCodec extends StandardMessageCodec {
         return NativeHttpResponseOhos.fromList(super.readValue(buffer) as Object[]);
       case this.getByte(131):
         return NativeHttpStreamHeadersOhos.fromList(super.readValue(buffer) as Object[]);
+      case this.getByte(132):
+        return NativeHttpMultipartRequestOhos.fromList(super.readValue(buffer) as Object[]);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -271,6 +484,9 @@ export class PigeonCodec extends StandardMessageCodec {
     } else if (value instanceof NativeHttpStreamHeadersOhos) {
       stream.writeUint8(this.getByte(131));
       this.writeValue(stream, (value as NativeHttpStreamHeadersOhos).toList());
+    } else if (value instanceof NativeHttpMultipartRequestOhos) {
+      stream.writeUint8(this.getByte(132));
+      this.writeValue(stream, (value as NativeHttpMultipartRequestOhos).toList());
     } else {
       super.writeValue(stream, value);
     }
@@ -291,6 +507,10 @@ export abstract class NativeHttpApiOhos {
   abstract sendStreamRequest(requestId: number , request: NativeHttpRequestOhos , result: Result<void>): void;
 
   abstract cancelStreamRequest(requestId: number ): void;
+
+  abstract sendMultipartRequest(requestId: number , request: NativeHttpMultipartRequestOhos , result: Result<NativeHttpResponseOhos>): void;
+
+  abstract cancelMultipartRequest(requestId: number ): void;
   /** The codec used by NativeHttpApiOhos. */
   static getCodec(): MessageCodec<Object>{
     return PigeonCodec.INSTANCE;
@@ -364,6 +584,57 @@ export abstract class NativeHttpApiOhos {
               let res: Array<Object> = [];
               try {
                 api!.cancelStreamRequest(args[0] as number);
+                res.push(null);
+              }
+ catch (error) {
+                let wrappedError: Array<Object> = wrapError(error);
+                res = wrappedError;
+              }
+              reply.reply(res);
+            } });
+      } else {
+        channel.setMessageHandler(null);
+      }
+    }
+    {
+      let channel: BasicMessageChannel<Object> =
+          new BasicMessageChannel(
+              binaryMessenger, "dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.sendMultipartRequest", NativeHttpApiOhos.getCodec());
+      if (api != null) {
+        channel.setMessageHandler({
+            onMessage(message: Object ,reply: Reply<Object> ) {
+              let args: Array<Object> = message as Array<Object>;
+              class ResultImp implements Result<NativeHttpResponseOhos>{
+                    success(result: NativeHttpResponseOhos): void {
+                      let res: Array<Object> = [];
+                      res.push(result);
+                      reply.reply(res);
+                    }
+
+                    error(error: Error): void {
+                      let wrappedError: Array<Object> = wrapError(error);
+                      reply.reply(wrappedError);
+                    }
+              }
+              let resultCallback: Result<NativeHttpResponseOhos> = new ResultImp();
+
+              api!.sendMultipartRequest(args[0] as number, args[1] as NativeHttpMultipartRequestOhos, resultCallback);
+            } });
+      } else {
+        channel.setMessageHandler(null);
+      }
+    }
+    {
+      let channel: BasicMessageChannel<Object> =
+          new BasicMessageChannel(
+              binaryMessenger, "dev.flutter.pigeon.ohos_http.NativeHttpApiOhos.cancelMultipartRequest", NativeHttpApiOhos.getCodec());
+      if (api != null) {
+        channel.setMessageHandler({
+            onMessage(message: Object ,reply: Reply<Object> ) {
+              let args: Array<Object> = message as Array<Object>;
+              let res: Array<Object> = [];
+              try {
+                api!.cancelMultipartRequest(args[0] as number);
                 res.push(null);
               }
  catch (error) {
@@ -473,6 +744,31 @@ export class NativeHttpFlutterApiOhos {
             this.binaryMessenger, channelName, NativeHttpFlutterApiOhos.getCodec());
     channel.send(
         [requestIdArg, codeArg, messageArg],
+        channelReply => {
+          if (Array.isArray(channelReply)) {
+            let listReply: ESObject[] = channelReply as ESObject[] ;
+            if (listReply.length > 1) {
+              let arrFirst:string = listReply[0] as string;
+              let arrSecond:string = listReply[1] as string;
+              let arrThird:string = listReply[2] as string;
+              let replyArr:ESObject = new FlutterError(arrFirst, arrSecond, arrThird)
+              callback.reply(replyArr);
+            } else {
+              callback.reply();
+            }
+          }  else {
+            let connErr:ESObject = new FlutterError('channel-error', "Unable to establish connection on channel: " + channelName + ".", "")
+            callback.reply(connErr);
+          } 
+        });
+  }
+  onUploadProgress(requestIdArg: number,bytesSentArg: number,totalBytesArg: number, callback: Reply<void>) {
+    const channelName: string = 'dev.flutter.pigeon.ohos_http.NativeHttpFlutterApiOhos.onUploadProgress';
+    let channel: BasicMessageChannel<Object> = 
+        new BasicMessageChannel<Object>(
+            this.binaryMessenger, channelName, NativeHttpFlutterApiOhos.getCodec());
+    channel.send(
+        [requestIdArg, bytesSentArg, totalBytesArg],
         channelReply => {
           if (Array.isArray(channelReply)) {
             let listReply: ESObject[] = channelReply as ESObject[] ;

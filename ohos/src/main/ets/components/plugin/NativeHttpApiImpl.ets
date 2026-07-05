@@ -1,62 +1,104 @@
-import { common } from '@kit.AbilityKit';
-import { http } from '@kit.NetworkKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { common, sendableContextManager } from '@kit.AbilityKit';
+import { ErrorEvent, MessageEvents, util, worker } from '@kit.ArkTS';
 import { BinaryMessenger } from '@ohos/flutter_ohos/src/main/ets/plugin/common/BinaryMessenger';
 import {
   FlutterError,
   NativeHttpApiOhos,
   NativeHttpFlutterApiOhos,
+  NativeHttpMultipartRequestOhos,
   NativeHttpRequestOhos,
   NativeHttpResponseOhos,
   NativeHttpStreamHeadersOhos,
   Result,
 } from './NativeHttpApiOhos.g';
-import { URLSessionManager } from './URLSessionManager';
+import { NativeHttpRequestCommand } from './NativeHttpRequestWorkerModels';
+import { NativeMultipartUploadCommand } from './NativeMultipartUploadWorkerModels';
+
+interface NativeSingleRequestState {
+  worker: worker.ThreadWorker;
+  result: Result<NativeHttpResponseOhos>;
+}
 
 interface NativeStreamRequestState {
-  request: http.HttpRequest;
+  worker: worker.ThreadWorker;
   cancelled: boolean;
-  responseCode?: number;
-  streamEnded: boolean;
+}
+
+interface NativeMultipartRequestState {
+  worker: worker.ThreadWorker;
+  cancelled: boolean;
+  result: Result<NativeHttpResponseOhos>;
 }
 
 export class NativeHttpApiImpl extends NativeHttpApiOhos {
-  private ctx?: common.Context;
+  private readonly sendableContext?: sendableContextManager.SendableContext;
   private readonly flutterApi: NativeHttpFlutterApiOhos;
+  private readonly singleRequests = new Map<number, NativeSingleRequestState>();
   private readonly streamRequests = new Map<number, NativeStreamRequestState>();
-  private readonly statusFieldNames = new Set<string>(['responseCode', 'statusCode', 'status', 'code']);
+  private readonly multipartRequests = new Map<number, NativeMultipartRequestState>();
+  private nextRequestId = 1;
 
   constructor(context: common.Context, binaryMessenger: BinaryMessenger) {
     super();
-    this.ctx = context;
+    this.sendableContext = sendableContextManager.convertFromContext(context);
     this.flutterApi = new NativeHttpFlutterApiOhos(binaryMessenger);
   }
 
-  override async sendRequest(requestData: NativeHttpRequestOhos, result: Result<NativeHttpResponseOhos>): Promise<void> {
+  override sendRequest(requestData: NativeHttpRequestOhos, result: Result<NativeHttpResponseOhos>): void {
     const url = requestData.getUrl();
     if (!url || url.length === 0) {
       result.error(new FlutterError('INVALID_URL', 'invalid_url', 'Request URL is required.'));
       return;
     }
 
-    const request = http.createHttp();
+    if (!this.sendableContext) {
+      result.error(new FlutterError('INVALID_CONTEXT', 'invalid_context', 'Application context is required.'));
+      return;
+    }
+
+    const requestId = this.nextRequestId++;
+    const t0 = Date.now();
+
+    const requestWorker = new worker.ThreadWorker('./NativeHttpRequestWorker.ets');
+    const state: NativeSingleRequestState = { worker: requestWorker, result: result };
+    this.singleRequests.set(requestId, state);
+
+    requestWorker.onmessage = (event: MessageEvents) => {
+      this.handleSingleRequestWorkerMessage(requestId, event.data as Object, t0);
+    };
+    requestWorker.onerror = (error: ErrorEvent) => {
+      const message = error?.message ?? 'Unknown worker error';
+      console.error(`[NativeHttpApi] sendRequest[${requestId}] WORKER_ERROR: ${message}, +${Date.now() - t0}ms`);
+      this.finishSingleRequestError(requestId, 'HTTP_REQUEST_WORKER_FAILED', 'http_request_worker_failed', message);
+    };
+    requestWorker.onexit = (code: number) => {
+      if (!this.singleRequests.has(requestId)) {
+        return;
+      }
+      const message = `Request worker exited with code ${code}.`;
+      console.error(`[NativeHttpApi] sendRequest[${requestId}] WORKER_EXIT: ${message}, +${Date.now() - t0}ms`);
+      this.finishSingleRequestError(requestId, 'HTTP_REQUEST_WORKER_EXITED', 'http_request_worker_exited', message);
+    };
+
     try {
-      const options = this.buildRequestOptions(requestData, false);
-      URLSessionManager.applyToOptions(this.ctx, options, url);
-
-      const response = await request.request(url, options);
-      URLSessionManager.updateFromResponse(this.ctx, url, response.header as Object | undefined);
-      const responseHeaders = this.toHeaderMap(response.header as Object | undefined);
-      const buffer = response.result as ArrayBuffer | undefined;
-      const bodyBytes = buffer ? new Uint8Array(buffer) : new Uint8Array(0);
-
-      result.success(new NativeHttpResponseOhos(response.responseCode, responseHeaders, bodyBytes));
+      requestWorker.postMessageWithSharedSendable(
+        new NativeHttpRequestCommand(
+          requestId,
+          'request',
+          this.sendableContext,
+          this.buildWorkerRequestJson(requestData),
+        ),
+      );
     } catch (error) {
-      const businessError = error as BusinessError;
-      const message = businessError?.message ?? `${error}`;
-      result.error(new FlutterError('HTTP_REQUEST_FAILED', 'http_request_failed', message));
-    } finally {
-      request.destroy();
+      const message = `${error}`;
+      console.error(`[NativeHttpApi] sendRequest[${requestId}] WORKER_DISPATCH_FAILED: ${message}, +${Date.now() - t0}ms`);
+      this.finishSingleRequestError(
+        requestId,
+        'HTTP_REQUEST_WORKER_DISPATCH_FAILED',
+        'http_request_worker_dispatch_failed',
+        message,
+      );
+      return;
     }
   }
 
@@ -67,41 +109,58 @@ export class NativeHttpApiImpl extends NativeHttpApiOhos {
       return;
     }
 
+    if (!this.sendableContext) {
+      result.error(new FlutterError('INVALID_CONTEXT', 'invalid_context', 'Application context is required.'));
+      return;
+    }
+
     this.cancelStreamRequest(requestId);
 
-    const request = http.createHttp();
-    const state: NativeStreamRequestState = {
-      request,
-      cancelled: false,
-      streamEnded: false,
-    };
+    const t0 = Date.now();
+
+    const requestWorker = new worker.ThreadWorker('./NativeHttpRequestWorker.ets');
+    const state: NativeStreamRequestState = { worker: requestWorker, cancelled: false };
     this.streamRequests.set(requestId, state);
-    this.attachStreamListeners(requestId, state, url);
+
+    requestWorker.onmessage = (event: MessageEvents) => {
+      this.handleStreamWorkerMessage(requestId, event.data as Object, t0);
+    };
+    requestWorker.onerror = (error: ErrorEvent) => {
+      const message = error?.message ?? 'Unknown worker error';
+      console.error(`[NativeHttpApi] sendStreamRequest[${requestId}] WORKER_ERROR: ${message}, +${Date.now() - t0}ms`);
+      this.finishStreamRequestError(requestId, 'HTTP_STREAM_WORKER_FAILED', message);
+    };
+    requestWorker.onexit = (code: number) => {
+      const current = this.streamRequests.get(requestId);
+      if (!current) {
+        return;
+      }
+      if (current.cancelled) {
+        this.cleanupStreamRequest(requestId, current);
+        return;
+      }
+      const message = `Stream worker exited with code ${code}.`;
+      console.error(`[NativeHttpApi] sendStreamRequest[${requestId}] WORKER_EXIT: ${message}, +${Date.now() - t0}ms`);
+      this.finishStreamRequestError(requestId, 'HTTP_STREAM_WORKER_EXITED', message);
+    };
 
     try {
-      const options = this.buildRequestOptions(requestData, true);
-      URLSessionManager.applyToOptions(this.ctx, options, url);
-
-      request.requestInStream(url, options).then((statusCode: number) => {
-        const current = this.streamRequests.get(requestId);
-        if (!current || current.cancelled) {
-          this.cleanupStreamRequest(requestId, current);
-          return;
-        }
-
-        current.responseCode = statusCode;
-        this.tryCompleteStreamRequest(requestId, current);
-      }).catch((error: Error) => {
-        this.handleStreamError(requestId, error);
-      });
-
-      result.success();
+      requestWorker.postMessageWithSharedSendable(
+        new NativeHttpRequestCommand(
+          requestId,
+          'stream',
+          this.sendableContext,
+          this.buildWorkerRequestJson(requestData),
+        ),
+      );
     } catch (error) {
+      const message = `${error}`;
+      console.error(`[NativeHttpApi] sendStreamRequest[${requestId}] WORKER_DISPATCH_FAILED: ${message}, +${Date.now() - t0}ms`);
       this.cleanupStreamRequest(requestId, state);
-      const businessError = error as BusinessError;
-      const message = businessError?.message ?? `${error}`;
-      result.error(new FlutterError('HTTP_STREAM_START_FAILED', 'http_stream_start_failed', message));
+      result.error(new FlutterError('HTTP_STREAM_WORKER_DISPATCH_FAILED', 'http_stream_worker_dispatch_failed', message));
+      return;
     }
+    result.success();
   }
 
   override cancelStreamRequest(requestId: number): void {
@@ -114,87 +173,220 @@ export class NativeHttpApiImpl extends NativeHttpApiOhos {
     this.cleanupStreamRequest(requestId, state);
   }
 
-  private buildRequestOptions(requestData: NativeHttpRequestOhos, isStreaming: boolean): http.HttpRequestOptions {
-    const options: http.HttpRequestOptions = {
-      method: this.toMethod(requestData.getMethod()),
-      header: this.toHeaderRecord(requestData.getHeaders()),
-      expectDataType: http.HttpDataType.ARRAY_BUFFER,
+  override sendMultipartRequest(
+    requestId: number,
+    requestData: NativeHttpMultipartRequestOhos,
+    result: Result<NativeHttpResponseOhos>,
+  ): void {
+    const t0 = Date.now();
+
+    const url = requestData.getUrl();
+    if (!url || url.length === 0) {
+      result.error(new FlutterError('INVALID_URL', 'invalid_url', 'Request URL is required.'));
+      return;
+    }
+
+    const filePath = requestData.getFilePath();
+    if (!filePath || filePath.length === 0) {
+      result.error(new FlutterError('INVALID_FILE_PATH', 'invalid_file_path', 'File path is required.'));
+      return;
+    }
+
+    if (!this.sendableContext) {
+      result.error(new FlutterError('INVALID_CONTEXT', 'invalid_context', 'Application context is required.'));
+      return;
+    }
+
+    this.cancelMultipartRequest(requestId);
+
+    const uploadWorker = new worker.ThreadWorker('./NativeMultipartUploadWorker.ets');
+    const state: NativeMultipartRequestState = {
+      worker: uploadWorker,
+      cancelled: false,
+      result: result,
+    };
+    this.multipartRequests.set(requestId, state);
+
+    uploadWorker.onmessage = (event: MessageEvents) => {
+      this.handleMultipartWorkerMessage(requestId, event.data as Object, t0);
+    };
+    uploadWorker.onerror = (error: ErrorEvent) => {
+      const message = error?.message ?? 'Unknown worker error';
+      console.error(`[NativeHttpApi] sendMultipartRequest[${requestId}] WORKER_ERROR: ${message}, +${Date.now() - t0}ms`);
+      this.finishMultipartRequestError(requestId, 'HTTP_MULTIPART_WORKER_FAILED', 'http_multipart_worker_failed', message);
+    };
+    uploadWorker.onexit = (code: number) => {
+      const current = this.multipartRequests.get(requestId);
+      if (!current) {
+        return;
+      }
+      if (current.cancelled) {
+        this.cleanupMultipartRequest(requestId, current);
+        return;
+      }
+      const message = `Multipart upload worker exited with code ${code}.`;
+      console.error(`[NativeHttpApi] sendMultipartRequest[${requestId}] WORKER_EXIT: ${message}, +${Date.now() - t0}ms`);
+      this.finishMultipartRequestError(requestId, 'HTTP_MULTIPART_WORKER_EXITED', 'http_multipart_worker_exited', message);
     };
 
-    if (!isStreaming) {
-      options.maxLimit = 100 * 1024 * 1024;
+    const command = new NativeMultipartUploadCommand(
+      requestId,
+      this.sendableContext,
+      this.buildMultipartWorkerRequestJson(requestData),
+    );
+    try {
+      uploadWorker.postMessageWithSharedSendable(command);
+    } catch (error) {
+      const message = `${error}`;
+      console.error(`[NativeHttpApi] sendMultipartRequest[${requestId}] WORKER_DISPATCH_FAILED: ${message}, +${Date.now() - t0}ms`);
+      this.finishMultipartRequestError(
+        requestId,
+        'HTTP_MULTIPART_WORKER_DISPATCH_FAILED',
+        'http_multipart_worker_dispatch_failed',
+        message,
+      );
+      return;
     }
-
-    const body = requestData.getBody();
-    if (body && body.length > 0) {
-      options.extraData = new Uint8Array(body).buffer;
-    }
-    return options;
   }
 
-  private attachStreamListeners(requestId: number, state: NativeStreamRequestState, url: string): void {
-    state.request.on('headersReceive', (headerObj: Object) => {
-      const current = this.streamRequests.get(requestId);
-      if (!current || current.cancelled) {
-        return;
-      }
-
-      URLSessionManager.updateFromResponse(this.ctx, url, headerObj);
-      const headers = this.toHeaderMap(headerObj, this.statusFieldNames);
-      const statusCode = this.extractStatusCode(headerObj) ?? -1;
-      this.flutterApi.onStreamHeaders(
-        requestId,
-        new NativeHttpStreamHeadersOhos(statusCode, headers),
-        { reply: () => {} },
-      );
-    });
-
-    state.request.on('dataReceive', (chunk: ArrayBuffer) => {
-      const current = this.streamRequests.get(requestId);
-      if (!current || current.cancelled || chunk.byteLength === 0) {
-        return;
-      }
-
-      const chunkBytes = new Uint8Array(chunk);
-      this.flutterApi.onStreamData(
-        requestId,
-        chunkBytes,
-        { reply: () => {} },
-      );
-    });
-
-    state.request.on('dataEnd', () => {
-      const current = this.streamRequests.get(requestId);
-      if (!current || current.cancelled) {
-        return;
-      }
-
-      current.streamEnded = true;
-      this.tryCompleteStreamRequest(requestId, current);
-    });
+  override cancelMultipartRequest(requestId: number): void {
+    const state = this.multipartRequests.get(requestId);
+    if (!state) {
+      return;
+    }
+    state.cancelled = true;
+    state.result.error(new FlutterError('CANCELLED', 'cancelled', 'Multipart upload was cancelled.'));
+    this.cleanupMultipartRequest(requestId, state);
   }
 
-  private tryCompleteStreamRequest(requestId: number, state?: NativeStreamRequestState): void {
-    const current = state ?? this.streamRequests.get(requestId);
-    if (!current || current.cancelled || !current.streamEnded || current.responseCode === undefined) {
+  private handleSingleRequestWorkerMessage(requestId: number, payloadObj: Object, t0: number): void {
+    const current = this.singleRequests.get(requestId);
+    if (!current) {
       return;
     }
 
-    this.flutterApi.onStreamComplete(requestId, current.responseCode, { reply: () => {} });
+    const payload = payloadObj as Record<string, Object>;
+    const command = payload['command'] as string | undefined;
+    switch (command) {
+      case 'requestSuccess': {
+        const statusCode = (payload['statusCode'] as number | undefined) ?? 200;
+        const headers = this.toHeaderMap(payload['headers'] as Object | undefined);
+        const body = payload['body'] as Uint8Array | undefined;
+        this.finishSingleRequestSuccess(
+          requestId,
+          new NativeHttpResponseOhos(statusCode, headers, body ?? new Uint8Array(0)),
+        );
+        return;
+      }
+      case 'requestError': {
+        const code = (payload['code'] as string | undefined) ?? 'HTTP_REQUEST_FAILED';
+        const name = (payload['name'] as string | undefined) ?? 'http_request_failed';
+        const message = (payload['message'] as string | undefined) ?? 'Request failed.';
+        console.error(`[NativeHttpApi] sendRequest[${requestId}] FAILED: ${message}, +${Date.now() - t0}ms`);
+        this.finishSingleRequestError(requestId, code, name, message);
+        return;
+      }
+      default:
+        console.error(`[NativeHttpApi] sendRequest[${requestId}] UNKNOWN_WORKER_MESSAGE: ${command ?? 'undefined'}, +${Date.now() - t0}ms`);
+        this.finishSingleRequestError(
+          requestId,
+          'HTTP_REQUEST_WORKER_PROTOCOL_ERROR',
+          'http_request_worker_protocol_error',
+          'Request worker returned an unknown message.',
+        );
+    }
+  }
+
+  private finishSingleRequestSuccess(requestId: number, response: NativeHttpResponseOhos): void {
+    const current = this.singleRequests.get(requestId);
+    if (!current) {
+      return;
+    }
+
+    this.singleRequests.delete(requestId);
+    try {
+      current.result.success(response);
+    } finally {
+      try {
+        current.worker.terminate();
+      } catch (_) {}
+    }
+  }
+
+  private finishSingleRequestError(requestId: number, code: string, name: string, message: string): void {
+    const current = this.singleRequests.get(requestId);
+    if (!current) {
+      return;
+    }
+
+    this.singleRequests.delete(requestId);
+    try {
+      current.result.error(new FlutterError(code, name, message));
+    } finally {
+      try {
+        current.worker.terminate();
+      } catch (_) {}
+    }
+  }
+
+  private handleStreamWorkerMessage(requestId: number, payloadObj: Object, t0: number): void {
+    const current = this.streamRequests.get(requestId);
+    if (!current || current.cancelled) {
+      return;
+    }
+
+    const payload = payloadObj as Record<string, Object>;
+    const command = payload['command'] as string | undefined;
+    switch (command) {
+      case 'streamHeaders': {
+        const statusCode = (payload['statusCode'] as number | undefined) ?? -1;
+        const headers = this.toHeaderMap(payload['headers'] as Object | undefined);
+        this.flutterApi.onStreamHeaders(
+          requestId,
+          new NativeHttpStreamHeadersOhos(statusCode, headers),
+          { reply: () => {} },
+        );
+        return;
+      }
+      case 'streamData': {
+        const chunk = payload['chunk'] as Uint8Array | undefined;
+        if (chunk && chunk.length > 0) {
+          this.flutterApi.onStreamData(requestId, chunk, { reply: () => {} });
+        }
+        return;
+      }
+      case 'streamComplete': {
+        const statusCode = (payload['statusCode'] as number | undefined) ?? 200;
+        this.flutterApi.onStreamComplete(requestId, statusCode, { reply: () => {} });
+        this.cleanupStreamRequest(requestId, current);
+        return;
+      }
+      case 'streamError': {
+        const code = (payload['code'] as string | undefined) ?? 'HTTP_STREAM_FAILED';
+        const message = (payload['message'] as string | undefined) ?? 'Stream request failed.';
+        console.error(`[NativeHttpApi] sendStreamRequest[${requestId}] FAILED: ${message}, +${Date.now() - t0}ms`);
+        this.finishStreamRequestError(requestId, code, message);
+        return;
+      }
+      default:
+        console.error(`[NativeHttpApi] sendStreamRequest[${requestId}] UNKNOWN_WORKER_MESSAGE: ${command ?? 'undefined'}, +${Date.now() - t0}ms`);
+        this.finishStreamRequestError(
+          requestId,
+          'HTTP_STREAM_WORKER_PROTOCOL_ERROR',
+          'Stream worker returned an unknown message.',
+        );
+    }
+  }
+
+  private finishStreamRequestError(requestId: number, code: string, message: string): void {
+    const current = this.streamRequests.get(requestId);
+    if (!current || current.cancelled) {
+      this.cleanupStreamRequest(requestId, current);
+      return;
+    }
+
+    this.flutterApi.onStreamError(requestId, code, message, { reply: () => {} });
     this.cleanupStreamRequest(requestId, current);
-  }
-
-  private handleStreamError(requestId: number, error: Error): void {
-    const state = this.streamRequests.get(requestId);
-    if (!state || state.cancelled) {
-      this.cleanupStreamRequest(requestId, state);
-      return;
-    }
-
-    const businessError = error as BusinessError;
-    const message = businessError?.message ?? `${error}`;
-    this.flutterApi.onStreamError(requestId, 'HTTP_STREAM_FAILED', message, { reply: () => {} });
-    this.cleanupStreamRequest(requestId, state);
   }
 
   private cleanupStreamRequest(requestId: number, state?: NativeStreamRequestState): void {
@@ -205,21 +397,100 @@ export class NativeHttpApiImpl extends NativeHttpApiOhos {
 
     this.streamRequests.delete(requestId);
     try {
-      current.request.off('headersReceive');
-    } catch (_) {}
-    try {
-      current.request.off('dataReceive');
-    } catch (_) {}
-    try {
-      current.request.off('dataEnd');
-    } catch (_) {}
-    try {
-      current.request.destroy();
+      current.worker.terminate();
     } catch (_) {}
   }
 
-  private toMethod(method?: string): http.RequestMethod {
-    return ((method ?? 'GET').toUpperCase()) as http.RequestMethod;
+  private cleanupMultipartRequest(requestId: number, state?: NativeMultipartRequestState): void {
+    const current = state ?? this.multipartRequests.get(requestId);
+    if (!current) {
+      return;
+    }
+    this.multipartRequests.delete(requestId);
+    try {
+      current.worker.terminate();
+    } catch (_) {}
+  }
+
+  private handleMultipartWorkerMessage(requestId: number, payloadObj: Object, t0: number): void {
+    const current = this.multipartRequests.get(requestId);
+    if (!current || current.cancelled) {
+      return;
+    }
+
+    const payload = payloadObj as Record<string, Object>;
+    const command = payload['command'] as string | undefined;
+    switch (command) {
+      case 'progressUpdate': {
+        const bytesSent = (payload['bytesSent'] as number | undefined) ?? 0;
+        const totalBytes = (payload['totalBytes'] as number | undefined) ?? 0;
+        if (totalBytes > 0) {
+          this.flutterApi.onUploadProgress(requestId, bytesSent, totalBytes, { reply: () => {} });
+        }
+        return;
+      }
+      case 'success': {
+        const statusCode = (payload['statusCode'] as number | undefined) ?? 200;
+        const responseHeaders = this.toHeaderMap(payload['headers'] as Object | undefined);
+        const bodyStr = payload['body'] as string | undefined;
+        const bodyBytes = bodyStr && bodyStr.length > 0
+          ? new util.TextEncoder().encodeInto(bodyStr)
+          : new Uint8Array(0);
+        this.finishMultipartRequestSuccess(
+          requestId,
+          new NativeHttpResponseOhos(statusCode, responseHeaders, bodyBytes),
+        );
+        return;
+      }
+      case 'error': {
+        const code = (payload['code'] as string | undefined) ?? 'HTTP_MULTIPART_FAILED';
+        const name = (payload['name'] as string | undefined) ?? 'http_multipart_failed';
+        const message = (payload['message'] as string | undefined) ?? 'Multipart upload failed.';
+        console.error(`[NativeHttpApi] sendMultipartRequest[${requestId}] FAILED: ${message}, +${Date.now() - t0}ms`);
+        this.finishMultipartRequestError(requestId, code, name, message);
+        return;
+      }
+      default:
+        console.error(`[NativeHttpApi] sendMultipartRequest[${requestId}] UNKNOWN_WORKER_MESSAGE: ${command ?? 'undefined'}, +${Date.now() - t0}ms`);
+        this.finishMultipartRequestError(
+          requestId,
+          'HTTP_MULTIPART_WORKER_PROTOCOL_ERROR',
+          'http_multipart_worker_protocol_error',
+          'Multipart upload worker returned an unknown message.',
+        );
+    }
+  }
+
+  private finishMultipartRequestSuccess(requestId: number, response: NativeHttpResponseOhos): void {
+    const current = this.multipartRequests.get(requestId);
+    if (!current) {
+      return;
+    }
+
+    this.multipartRequests.delete(requestId);
+    try {
+      current.result.success(response);
+    } finally {
+      try {
+        current.worker.terminate();
+      } catch (_) {}
+    }
+  }
+
+  private finishMultipartRequestError(requestId: number, code: string, name: string, message: string): void {
+    const current = this.multipartRequests.get(requestId);
+    if (!current) {
+      return;
+    }
+
+    this.multipartRequests.delete(requestId);
+    try {
+      current.result.error(new FlutterError(code, name, message));
+    } finally {
+      try {
+        current.worker.terminate();
+      } catch (_) {}
+    }
   }
 
   private toHeaderRecord(headers?: Map<string, string>): Record<string, string> {
@@ -235,6 +506,39 @@ export class NativeHttpApiImpl extends NativeHttpApiOhos {
     });
 
     return record;
+  }
+
+  private encodeBodyForWorker(body?: Uint8Array): string | undefined {
+    if (!body || body.length === 0) {
+      return undefined;
+    }
+    return new util.Base64Helper().encodeToStringSync(body);
+  }
+
+  private buildWorkerRequestJson(requestData: NativeHttpRequestOhos): string {
+    return JSON.stringify({
+      method: requestData.getMethod() ?? 'GET',
+      url: requestData.getUrl() ?? '',
+      headers: this.toHeaderRecord(requestData.getHeaders()),
+      bodyBase64: this.encodeBodyForWorker(requestData.getBody()),
+      connectTimeoutMs: requestData.getConnectTimeoutMs(),
+      readTimeoutMs: requestData.getReadTimeoutMs(),
+    });
+  }
+
+  private buildMultipartWorkerRequestJson(requestData: NativeHttpMultipartRequestOhos): string {
+    return JSON.stringify({
+      method: requestData.getMethod() ?? 'POST',
+      url: requestData.getUrl() ?? '',
+      headers: this.toHeaderRecord(requestData.getHeaders()),
+      fields: this.toHeaderRecord(requestData.getFields()),
+      fileFieldName: requestData.getFileFieldName() ?? '',
+      filePath: requestData.getFilePath() ?? '',
+      fileName: requestData.getFileName() ?? '',
+      contentType: requestData.getContentType() ?? '',
+      connectTimeoutMs: requestData.getConnectTimeoutMs(),
+      readTimeoutMs: requestData.getReadTimeoutMs(),
+    });
   }
 
   private toHeaderMap(headers?: Object, excludedKeys?: Set<string>): Map<string, string> {
@@ -284,27 +588,5 @@ export class NativeHttpApiImpl extends NativeHttpApiOhos {
     }
 
     return `${value}`;
-  }
-
-  private extractStatusCode(payload?: Object): number | undefined {
-    if (!payload || typeof payload !== 'object') {
-      return undefined;
-    }
-
-    const record = payload as Record<string, Object>;
-    for (const key of this.statusFieldNames) {
-      const value = record[key];
-      if (typeof value === 'number') {
-        return value;
-      }
-      if (typeof value === 'string') {
-        const parsed = Number.parseInt(value, 10);
-        if (!Number.isNaN(parsed)) {
-          return parsed;
-        }
-      }
-    }
-
-    return undefined;
   }
 }
