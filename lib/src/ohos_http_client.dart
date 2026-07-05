@@ -1,38 +1,51 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import 'ohos_http_ffi_runtime.dart';
 import 'native_http_api_ohos.g.dart';
+import 'ohos_multipart_request.dart';
+import 'request_id_generator.dart';
 
-/// An OHOS [http.Client] backed by NetworkKit through a native plugin bridge.
+/// An OHOS [http.Client] backed by NetworkKit for buffered requests and
+/// libcurl FFI for transports that need streaming callbacks.
 class OhosHttpClient extends http.BaseClient {
-  OhosHttpClient({NativeHttpApiOhos? nativeApi})
-    : _nativeApi = nativeApi ?? NativeHttpApiOhos(),
-      _supportsNativeStreamCallbacks = ui.RootIsolateToken.instance != null {
-    if (_supportsNativeStreamCallbacks) {
-      _streamBridge ??= _NativeHttpFlutterApiBridge();
-      NativeHttpFlutterApiOhos.setUp(_streamBridge);
-    }
-  }
+  OhosHttpClient({
+    Duration connectTimeout = const Duration(seconds: 30),
+    Duration readTimeout = const Duration(seconds: 60),
+    NativeHttpApiOhos? nativeApi,
+  }) : _nativeApi = nativeApi ?? NativeHttpApiOhos(),
+       _connectTimeoutMs = connectTimeout.inMilliseconds,
+       _readTimeoutMs = readTimeout.inMilliseconds;
 
   final NativeHttpApiOhos _nativeApi;
-  final bool _supportsNativeStreamCallbacks;
+  final int _connectTimeoutMs;
+  final int _readTimeoutMs;
 
-  static _NativeHttpFlutterApiBridge? _streamBridge;
   static final Map<int, _PendingNativeStreamRequest> _pendingRequests = {};
-  static int _nextRequestId = 1;
+  static final Map<int, _PendingMultipartUpload> _pendingMultipartUploads = {};
+  static int _nextRequestId = createOhosHttpInitialRequestId();
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    // Route OhosMultipartRequest to the libcurl upload path that streams from
+    // filePath directly and avoids loading the file into memory.
+    if (request is OhosMultipartRequest) {
+      return _sendNativeMultipartRequest(request);
+    }
+
     try {
       final body = await request.finalize().toBytes();
+      final bodyBytes = Uint8List.fromList(body);
+      final requestHeaders = _buildTransportHeaders(request.headers);
       final nativeRequest = NativeHttpRequestOhos(
         method: request.method,
         url: request.url.toString(),
-        headers: Map<String, String>.from(request.headers),
-        body: body.isEmpty ? null : body,
+        headers: requestHeaders,
+        body: bodyBytes.isEmpty ? null : bodyBytes,
+        connectTimeoutMs: _connectTimeoutMs,
+        readTimeoutMs: _readTimeoutMs,
       );
 
       if (_shouldStreamResponse(request)) {
@@ -40,7 +53,7 @@ class OhosHttpClient extends http.BaseClient {
       }
 
       final response = await _nativeApi.sendRequest(nativeRequest);
-      final headers = Map<String, String>.from(response.headers);
+      final headers = _normalizeResponseHeaders(response.headers);
       return http.StreamedResponse(
         Stream<List<int>>.value(response.body),
         response.statusCode,
@@ -65,34 +78,64 @@ class OhosHttpClient extends http.BaseClient {
     final pending = _PendingNativeStreamRequest(owner: this, request: request);
     _pendingRequests[requestId] = pending;
 
-    if (request is http.Abortable && request.abortTrigger != null) {
-      unawaited(
-        request.abortTrigger!.whenComplete(() async {
-          final current = _pendingRequests.remove(requestId);
-          if (current == null) {
-            return;
-          }
-          current.abort();
-          try {
-            await _nativeApi.cancelStreamRequest(requestId);
-          } catch (_) {}
-        }),
-      );
-    }
+    _attachStreamAbortTrigger(request, requestId);
 
-    try {
-      await _nativeApi.sendStreamRequest(requestId, nativeRequest);
-      return await pending.response;
-    } on PlatformException catch (error) {
+    final ffiRuntime = OhosHttpFfiRuntime.instance;
+    if (!ffiRuntime.ensureLoaded() ||
+        !(ffiRuntime.state?.libcurlEnabled ?? false)) {
       _pendingRequests.remove(requestId);
       final exception = http.ClientException(
-        _formatPlatformException(error),
+        'Streaming responses require the OHOS HTTP FFI transport with libcurl support.',
         request.url,
       );
       pending.fail(exception);
       throw exception;
-    } on Exception catch (error) {
+    }
+
+    pending.cancelTransport = () async {
+      ffiRuntime.cancelStreamRequest(requestId);
+    };
+    try {
+      ffiRuntime.sendStreamRequest(
+        requestId: requestId,
+        method: request.method,
+        url: request.url,
+        headers: _buildTransportHeaders(request.headers),
+        body: nativeRequest.body ?? Uint8List(0),
+        connectTimeoutMs: _connectTimeoutMs,
+        readTimeoutMs: _readTimeoutMs,
+        onHeaders: (statusCode, headers) {
+          final current = _pendingRequests[requestId];
+          if (current == null) {
+            return;
+          }
+          current.onHeaders(
+            NativeHttpStreamHeadersOhos(
+              statusCode: statusCode,
+              headers: headers,
+            ),
+          );
+        },
+        onData: (chunk) {
+          _pendingRequests[requestId]?.onData(chunk);
+        },
+        onComplete: (statusCode) {
+          final current = _pendingRequests.remove(requestId);
+          current?.onComplete(statusCode);
+        },
+        onError: (code, message) {
+          final current = _pendingRequests.remove(requestId);
+          current?.onError(code, message);
+        },
+      );
+      return pending.response;
+    } on OhosHttpFfiException catch (error) {
+      if (!_pendingRequests.containsKey(requestId)) {
+        throw http.RequestAbortedException(request.url);
+      }
+
       _pendingRequests.remove(requestId);
+      pending.cancelTransport = null;
       final exception = http.ClientException(error.toString(), request.url);
       pending.fail(exception);
       throw exception;
@@ -105,17 +148,95 @@ class OhosHttpClient extends http.BaseClient {
         .where((entry) => entry.value.owner == this)
         .toList();
     for (final entry in pendingEntries) {
-      _pendingRequests.remove(entry.key);
-      entry.value.abort();
-      unawaited(_nativeApi.cancelStreamRequest(entry.key).catchError((_) {}));
+      unawaited(_cancelPendingStreamRequest(entry.key).catchError((_) {}));
+    }
+
+    final multipartEntries = _pendingMultipartUploads.entries
+        .where((entry) => entry.value.owner == this)
+        .toList();
+    for (final entry in multipartEntries) {
+      unawaited(_cancelPendingMultipartUpload(entry.key).catchError((_) {}));
+    }
+  }
+
+  /// Send a multipart request through curl FFI using the source file
+  /// path directly, avoiding loading the file contents into Dart memory.
+  Future<http.StreamedResponse> _sendNativeMultipartRequest(
+    OhosMultipartRequest request,
+  ) async {
+    if (request.files.isEmpty) {
+      throw http.ClientException(
+        'OhosMultipartRequest must have at least one file',
+        request.url,
+      );
+    }
+
+    request.finalize();
+
+    final file = request.files.first;
+    final requestId = _nextRequestId++;
+    final pending = _PendingMultipartUpload(
+      owner: this,
+      onProgress: request.onProgress,
+    );
+    _pendingMultipartUploads[requestId] = pending;
+    _attachMultipartAbortTrigger(request, requestId);
+
+    final ffiRuntime = OhosHttpFfiRuntime.instance;
+    if (!ffiRuntime.ensureLoaded() ||
+        !(ffiRuntime.state?.libcurlEnabled ?? false)) {
+      _pendingMultipartUploads.remove(requestId);
+      throw http.ClientException(
+        'Multipart uploads require the OHOS HTTP FFI transport with libcurl support.',
+        request.url,
+      );
+    }
+
+    if (!_pendingMultipartUploads.containsKey(requestId)) {
+      throw http.RequestAbortedException(request.url);
+    }
+
+    pending.cancelTransport = () async {
+      ffiRuntime.cancelMultipartRequest(requestId);
+    };
+
+    try {
+      final response = await ffiRuntime.sendMultipartRequest(
+        method: request.method,
+        requestId: requestId,
+        url: request.url,
+        headers: _buildTransportHeaders(request.headers),
+        fields: Map<String, String>.from(request.fields),
+        fileFieldName: file.field,
+        filePath: file.filePath,
+        fileName: file.filename,
+        contentType: file.contentType,
+        connectTimeoutMs: _connectTimeoutMs,
+        readTimeoutMs: _readTimeoutMs,
+        onProgress: (bytesSent, totalBytes) {
+          _pendingMultipartUploads[requestId]?.onProgress?.call(
+            bytesSent,
+            totalBytes,
+          );
+        },
+      );
+      _pendingMultipartUploads.remove(requestId);
+      return _buildBufferedResponse(
+        request: request,
+        statusCode: response.statusCode,
+        headers: response.headers,
+        body: response.body,
+      );
+    } on OhosHttpFfiException catch (error) {
+      _pendingMultipartUploads.remove(requestId);
+      if (error.code == 'HTTP_FFI_REQUEST_ABORTED') {
+        throw http.RequestAbortedException(request.url);
+      }
+      throw http.ClientException(error.toString(), request.url);
     }
   }
 
   bool _shouldStreamResponse(http.BaseRequest request) {
-    if (!_supportsNativeStreamCallbacks) {
-      return false;
-    }
-
     if (request.url.path.endsWith('/sync/stream')) {
       return true;
     }
@@ -133,12 +254,84 @@ class OhosHttpClient extends http.BaseClient {
     return null;
   }
 
+  Map<String, String> _buildTransportHeaders(Map<String, String> headers) {
+    return Map<String, String>.from(headers);
+  }
+
   int? _parseContentLength(Map<String, String> headers) {
     final value = _getHeaderValue(headers, 'content-length');
     if (value == null || value.isEmpty) {
       return null;
     }
     return int.tryParse(value);
+  }
+
+  void _attachStreamAbortTrigger(http.BaseRequest request, int requestId) {
+    if (request is! http.Abortable || request.abortTrigger == null) {
+      return;
+    }
+
+    unawaited(
+      request.abortTrigger!.whenComplete(() async {
+        await _cancelPendingStreamRequest(requestId);
+      }),
+    );
+  }
+
+  void _attachMultipartAbortTrigger(
+    OhosMultipartRequest request,
+    int requestId,
+  ) {
+    if (request.abortTrigger == null) {
+      return;
+    }
+
+    unawaited(
+      request.abortTrigger!.whenComplete(() async {
+        await _cancelPendingMultipartUpload(requestId);
+      }),
+    );
+  }
+
+  Future<void> _cancelPendingStreamRequest(int requestId) async {
+    final current = _pendingRequests.remove(requestId);
+    if (current == null) {
+      return;
+    }
+
+    current.abort();
+    try {
+      await current.cancelTransport?.call();
+    } catch (_) {}
+  }
+
+  Future<void> _cancelPendingMultipartUpload(int requestId) async {
+    final current = _pendingMultipartUploads.remove(requestId);
+    if (current == null) {
+      return;
+    }
+
+    try {
+      await current.cancelTransport?.call();
+    } catch (_) {}
+  }
+
+  http.StreamedResponse _buildBufferedResponse({
+    required http.BaseRequest request,
+    required int statusCode,
+    required Map<String, String> headers,
+    required Uint8List body,
+  }) {
+    final responseHeaders = _normalizeResponseHeaders(headers);
+    return http.StreamedResponse(
+      Stream<List<int>>.value(body),
+      statusCode,
+      request: request,
+      headers: responseHeaders,
+      contentLength: _parseContentLength(responseHeaders) ?? body.length,
+      isRedirect: false,
+      persistentConnection: request.persistentConnection,
+    );
   }
 
   String _formatPlatformException(PlatformException error) {
@@ -150,11 +343,28 @@ class OhosHttpClient extends http.BaseClient {
   }
 }
 
+Map<String, String> _normalizeResponseHeaders(Map<String, String> headers) {
+  final normalized = <String, String>{};
+  for (final entry in headers.entries) {
+    final key = entry.key.toLowerCase();
+    final existing = normalized[key];
+    if (existing == null || existing.isEmpty) {
+      normalized[key] = entry.value;
+      continue;
+    }
+    if (entry.value.isNotEmpty) {
+      normalized[key] = '$existing, ${entry.value}';
+    }
+  }
+  return normalized;
+}
+
 class _PendingNativeStreamRequest {
   _PendingNativeStreamRequest({required this.owner, required this.request});
 
   final OhosHttpClient owner;
   final http.BaseRequest request;
+  Future<void> Function()? cancelTransport;
 
   final StreamController<List<int>> _controller = StreamController<List<int>>();
   final Completer<http.StreamedResponse> _responseCompleter =
@@ -175,7 +385,7 @@ class _PendingNativeStreamRequest {
     }
 
     _receivedHeadersEvent = true;
-    _headers = Map<String, String>.from(response.headers);
+    _headers = _normalizeResponseHeaders(response.headers);
     final statusCode = response.statusCode;
     if (statusCode != null && statusCode > 0) {
       _statusCode = statusCode;
@@ -308,29 +518,10 @@ class _PendingNativeStreamRequest {
   }
 }
 
-class _NativeHttpFlutterApiBridge extends NativeHttpFlutterApiOhos {
-  @override
-  Future<void> onStreamHeaders(
-    int requestId,
-    NativeHttpStreamHeadersOhos response,
-  ) async {
-    OhosHttpClient._pendingRequests[requestId]?.onHeaders(response);
-  }
+class _PendingMultipartUpload {
+  _PendingMultipartUpload({required this.owner, this.onProgress});
 
-  @override
-  Future<void> onStreamData(int requestId, Uint8List chunk) async {
-    OhosHttpClient._pendingRequests[requestId]?.onData(chunk);
-  }
-
-  @override
-  Future<void> onStreamComplete(int requestId, int statusCode) async {
-    final pending = OhosHttpClient._pendingRequests.remove(requestId);
-    pending?.onComplete(statusCode);
-  }
-
-  @override
-  Future<void> onStreamError(int requestId, String code, String message) async {
-    final pending = OhosHttpClient._pendingRequests.remove(requestId);
-    pending?.onError(code, message);
-  }
+  final OhosHttpClient owner;
+  final void Function(int bytesSent, int totalBytes)? onProgress;
+  Future<void> Function()? cancelTransport;
 }
