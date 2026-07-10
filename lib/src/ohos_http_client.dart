@@ -329,10 +329,15 @@ class OhosHttpClient extends http.BaseClient {
 
   String _formatPlatformException(PlatformException error) {
     final message = error.message;
-    if (message == null || message.isEmpty) {
-      return error.code;
+    final details = error.details?.toString();
+    final parts = <String>[error.code];
+    if (message != null && message.isNotEmpty) {
+      parts.add(message);
     }
-    return '${error.code}: $message';
+    if (details != null && details.isNotEmpty) {
+      parts.add(details);
+    }
+    return parts.join(': ');
   }
 }
 

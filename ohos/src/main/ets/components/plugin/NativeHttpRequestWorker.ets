@@ -116,9 +116,14 @@ async function runSingleRequest(command: NativeHttpRequestCommand): Promise<void
 
   const request = http.createHttp();
   currentRequest = request;
+  let tlsDiagnostics = 'caPathConfigured=false,clientCertConfigured=false';
   try {
     const options = buildRequestOptions(requestData, false);
+    console.info(`[NativeHttpRequestWorker] filesDir=${appContext.filesDir} url=${url}`);
     URLSessionManager.applyToOptions(appContext, options, url);
+    tlsDiagnostics =
+      `caPathConfigured=${options.caPath !== undefined},` +
+      `clientCertConfigured=${options.clientCert !== undefined}`;
 
     const response = await request.request(url, options);
     URLSessionManager.updateFromResponse(appContext, url, response.header as Object | undefined);
@@ -134,7 +139,7 @@ async function runSingleRequest(command: NativeHttpRequestCommand): Promise<void
     };
     safePostMessage(successMessage as Object);
   } catch (error) {
-    const message = logWorkerError('sendRequest', command.requestId, error as Object);
+    const message = logWorkerError('sendRequest', command.requestId, error as Object, tlsDiagnostics);
     postRequestError(command.requestId, 'HTTP_REQUEST_FAILED', 'http_request_failed', message);
   } finally {
     try {
@@ -200,6 +205,7 @@ async function runStreamRequest(command: NativeHttpRequestCommand): Promise<void
 
   try {
     const options = buildRequestOptions(requestData, true);
+    console.info(`[NativeHttpRequestWorker] stream filesDir=${appContext.filesDir} url=${url}`);
     URLSessionManager.applyToOptions(appContext, options, url);
     streamState.responseCode = await request.requestInStream(url, options);
     tryCompleteStream(streamState);
@@ -298,13 +304,15 @@ function postStreamError(requestId: number, code: string, message: string): void
   safePostMessage(errorMessage as Object);
 }
 
-function logWorkerError(stage: string, requestId: number, error: Object): string {
+function logWorkerError(stage: string, requestId: number, error: Object, diagnostics?: string): string {
   const businessError = error as BusinessError;
   const code = businessError?.code !== undefined ? `${businessError.code}` : 'unknown';
   const name = businessError?.name ?? 'unknown';
   const message = businessError?.message ?? `${error}`;
-  console.error(`[NativeHttpRequestWorker] ${stage}[${requestId}] failed, code=${code}, name=${name}, message=${message}`);
-  return message;
+  const suffix = diagnostics && diagnostics.length > 0 ? `; ${diagnostics}` : '';
+  const details = `${code}:${name}:${message}${suffix}`;
+  console.error(`[NativeHttpRequestWorker] ${stage}[${requestId}] failed: ${details}`);
+  return details;
 }
 
 function safePostMessage(payload: Object): boolean {

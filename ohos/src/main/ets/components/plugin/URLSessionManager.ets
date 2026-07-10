@@ -117,8 +117,11 @@ export class URLSessionManager {
     }
 
     const caPath = URLSessionManager.caBundlePath(context);
-    if (!validationHeaders.skip && URLSessionManager.safeAccess(caPath)) {
+    const caAccessible = URLSessionManager.safeAccess(caPath);
+    console.info(`[URLSessionManager] applyToOptions: filesDir=${context.filesDir} caPath=${caPath} accessible=${caAccessible}`);
+    if (!validationHeaders.skip && caAccessible) {
       options.caPath = caPath;
+      console.info(`[URLSessionManager] applyToOptions: CA bundle applied to request options`);
     }
 
     const cert = URLSessionManager.load(context);

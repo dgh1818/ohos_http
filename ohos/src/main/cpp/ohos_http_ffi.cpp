@@ -1132,7 +1132,7 @@ int32_t ExtractCaBundleFromPkcs12File(
 
   OPENSSL_STACK* stack = reinterpret_cast<OPENSSL_STACK*>(ca_certificates);
   const int ca_count = stack != nullptr ? OPENSSL_sk_num(stack) : 0;
-  if (ca_count <= 0) {
+  if (certificate == nullptr && ca_count <= 0) {
     FreePkcs12ParseOutputs(private_key, certificate, ca_certificates);
     return kCertificateNoCaBundle;
   }
@@ -1144,6 +1144,9 @@ int32_t ExtractCaBundleFromPkcs12File(
   }
 
   int written_count = 0;
+  if (certificate != nullptr && PEM_write_bio_X509(output, certificate) == 1) {
+    ++written_count;
+  }
   for (int index = 0; index < ca_count; ++index) {
     X509* ca_certificate = static_cast<X509*>(OPENSSL_sk_value(stack, index));
     if (ca_certificate != nullptr && PEM_write_bio_X509(output, ca_certificate) == 1) {
